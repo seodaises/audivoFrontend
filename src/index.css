@@ -1,0 +1,21 @@
+:root {
+  /* Support both light and dark UA rendering for the day/night toggle. */
+  color-scheme: light dark;
+
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  /* kill the default 8px body margin */
+}
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
