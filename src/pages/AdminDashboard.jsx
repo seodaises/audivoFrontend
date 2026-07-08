@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Box, Typography, Paper, Stack, Chip, LinearProgress, Skeleton, Alert } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../store/hooks/useAuth';
 import { api } from '../api/client';
 import { USERS, ROLES, ANALYTICS } from '../constants/route_constant';
 

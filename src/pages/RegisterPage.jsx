@@ -4,7 +4,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import MusicNoteRoundedIcon from '@mui/icons-material/MusicNoteRounded';
 import HeadphonesRoundedIcon from '@mui/icons-material/HeadphonesRounded';
 import MicRoundedIcon from '@mui/icons-material/MicRounded';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../store/hooks/useAuth';
 import { LOGIN } from '../constants/route_constant';
 
 export default function RegisterPage() {
@@ -137,14 +137,6 @@ export default function RegisterPage() {
               onChange={(e) => setConfirm(e.target.value)}
             />
           </Stack>
-
-          {/* Honest note about the deferred artist-profile step */}
-          {role === 'Artist' && (
-            <Alert severity="info" sx={{ mt: 2 }}>
-              After verifying your email, you'll set up your artist profile —
-              genre, country, and more.
-            </Alert>
-          )}
 
           <FormControlLabel
             sx={{ mt: 1 }}

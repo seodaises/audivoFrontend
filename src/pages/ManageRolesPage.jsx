@@ -7,7 +7,7 @@ import {
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded';
 import ShieldRoundedIcon from '@mui/icons-material/ShieldRounded';
 import { api } from '../api/client';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../store/hooks/useAuth';
 
 const PERMISSION_LABELS = {
   upload_songs: 'Upload songs',
