@@ -4,7 +4,7 @@ import {
 } from '@mui/material';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../store/hooks/useAuth';
 import { LOGIN } from '../constants/route_constant';
 
 export default function LogoutConfirmDialog({ open, onClose }) {

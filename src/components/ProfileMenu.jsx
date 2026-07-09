@@ -6,7 +6,7 @@ import {
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import LockResetRoundedIcon from '@mui/icons-material/LockResetRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../store/hooks/useAuth';
 import ProfileDialog from './ProfileDialog';
 import ChangePasswordDialog from './ChangePasswordDialog';
 import LogoutConfirmDialog from './LogoutConfirmDialog';

@@ -1,7 +1,6 @@
 import { Box, Typography } from "@mui/material";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "../store/hooks/useAuth";
 
-// Returns a greeting string based on the current hour of the day.
 function getGreeting() {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning";
@@ -12,10 +11,8 @@ function getGreeting() {
 export default function GreetingHeader() {
   const { user } = useAuth();   
 
-  // Fall back gracefully if the name isn't loaded yet.
   const name = user?.name || user?.email?.split("@")[0] || "there";
   const greeting = getGreeting();
-
   return (
     <Box sx={{ mb: 4 }}>
       <Typography

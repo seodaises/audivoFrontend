@@ -7,7 +7,7 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded';
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded';
 import { api } from '../api/client';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../store/hooks/useAuth';
 import SetUserStatusDialog from '../components/SetUserStatusDialog';
 import DeleteUserDialog from '../components/DeleteUserDialog';
 

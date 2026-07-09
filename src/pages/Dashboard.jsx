@@ -1,5 +1,5 @@
 import { Box } from '@mui/material';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../store/hooks/useAuth';
 import GreetingHeader from '../components/GreetingHeader';
 import Shelf from '../components/Shelfs';
 import { quickPicks, recentlyPlayed, madeForYou } from '../data/placeholders';

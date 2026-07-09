@@ -5,14 +5,14 @@ import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
 import MenuOpenRoundedIcon from '@mui/icons-material/MenuOpenRounded';
 import MenuRoundedIcon from '@mui/icons-material/MenuRounded';
 import { useNavigate } from 'react-router-dom';
-import { useColorMode } from '../../context/ColorModeContext';
-import { useUIPreferences } from '../../context/UIPreferencesContext';
-import { useAuth } from '../../context/AuthContext';
+import { useColorMode } from '../../store/hooks/useColorMode';
+import { useSidebar } from '../../store/hooks/useSidebar';
+import { useAuth } from '../../store/hooks/useAuth';
 import { LOGIN } from '../../constants/route_constant';
 
 export default function Header() {
   const { mode, toggle } = useColorMode();
-  const { sidebarHidden, toggleSidebar } = useUIPreferences();
+  const { sidebarHidden, toggleSidebar } = useSidebar();
   const { user } = useAuth();
   const navigate = useNavigate();
 

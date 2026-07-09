@@ -12,8 +12,8 @@ import MailRoundedIcon from '@mui/icons-material/MailRounded';
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
 import ShieldRoundedIcon from '@mui/icons-material/ShieldRounded';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
-import { useUIPreferences } from '../../context/UIPreferencesContext';
+import { useAuth } from '../../store/hooks/useAuth';
+import { useSidebar } from '../../store/hooks/useSidebar';
 import { PERMISSIONS } from '../../auth/permissions';
 import ProfileMenu from '../ProfileMenu';
 import {
@@ -56,7 +56,7 @@ const superAdminItems = [
 
 export default function Sidebar() {
   const { user, can } = useAuth();
-  const { sidebarHidden } = useUIPreferences();
+  const { sidebarHidden } = useSidebar();
   const navigate = useNavigate();
   const { pathname } = useLocation();
 

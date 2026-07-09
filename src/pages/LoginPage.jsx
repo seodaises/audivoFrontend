@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Box, Card, CardContent, Typography, Stack, TextField, Button, Alert, Link, Divider } from '@mui/material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import MusicNoteRoundedIcon from '@mui/icons-material/MusicNoteRounded';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../store/hooks/useAuth';
 import { DASHBOARD, FORGOT_PASSWORD, REGISTER } from '../constants/route_constant';
 import ContactDialog from '../components/ContactDialog';
 

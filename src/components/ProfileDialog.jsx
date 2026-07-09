@@ -10,7 +10,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import VerifiedRoundedIcon from '@mui/icons-material/VerifiedRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../store/hooks/useAuth';
 import DeleteAccountDialog from './DeleteAccountDialog';
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
