@@ -53,12 +53,12 @@ function ActionCard({ icon, title, description, onClick }) {
         '&:hover': { transform: 'translateY(-4px)', boxShadow: 6, borderColor: 'primary.main' },
       }}
     >
-      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1 }}>
         <Box sx={{ color: 'primary.main', display: 'flex' }}>{icon}</Box>
         <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{title}</Typography>
       </Stack>
       <Typography variant="body2" color="text.secondary">{description}</Typography>
-      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 1.5, color: 'primary.main' }}>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mt: 1.5, color: 'primary.main' }}>
         <Typography variant="button">Open</Typography>
         <ArrowForwardRoundedIcon fontSize="small" />
       </Stack>
@@ -74,10 +74,8 @@ function RoleBreakdownRow({ role, active, inactive, total }) {
     <Box sx={{ py: 1.25 }}>
       <Stack
         direction="row"
-        alignItems="baseline"
-        justifyContent="space-between"
         spacing={2}
-        sx={{ mb: 0.75 }}
+        sx={{ alignItems: 'baseline', justifyContent: 'space-between', mb: 0.75 }}
       >
         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{role}</Typography>
         <Typography
@@ -135,7 +133,7 @@ export default function AdminDashboard() {
   return (
     <Box>
       {/* Header */}
-      <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 0.5 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 0.5 }}>
         <Typography variant="h4" sx={{ fontWeight: 800, letterSpacing: '-0.5px' }}>
           Admin overview
         </Typography>
@@ -221,7 +219,7 @@ export default function AdminDashboard() {
 
       {can('manage_roles') && (
         <Box sx={{ mt: 4 }}>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2 }}>
             <AdminPanelSettingsRoundedIcon sx={{ color: 'primary.main' }} />
             <Typography variant="h6" sx={{ fontWeight: 700 }}>Super Admin</Typography>
             <Chip label="Elevated" size="small" variant="outlined" color="primary" />

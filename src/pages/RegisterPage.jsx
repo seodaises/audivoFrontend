@@ -76,7 +76,7 @@ export default function RegisterPage() {
       <Card elevation={3} sx={{ borderRadius: 3 }}>
         <CardContent sx={{ p: 4 }}>
           {/* Brand */}
-          <Stack direction="row" alignItems="center" justifyContent="center" spacing={1} sx={{ mb: 0.5 }}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'center', mb: 0.5 }}>
             <Avatar sx={{ bgcolor: 'primary.main', width: 36, height: 36 }}>
               <MusicNoteRoundedIcon fontSize="small" />
             </Avatar>

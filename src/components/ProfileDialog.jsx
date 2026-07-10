@@ -111,7 +111,7 @@ export default function ProfileDialog({ open, onClose }) {
 
       <DialogContent dividers>
         {/* Header block: avatar + name + role + verification badge */}
-        <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2 }}>
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mb: 2 }}>
           <Avatar src={user.avatarUrl || undefined} sx={{ width: 64, height: 64, bgcolor: 'primary.main', fontSize: 28 }}>
             {user.avatarUrl ? null : initial}
           </Avatar>
@@ -124,7 +124,7 @@ export default function ProfileDialog({ open, onClose }) {
                 @{user.username}
               </Typography>
             )}
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 0.5 }}>
               <Chip label={user.role} color="primary" variant="outlined" size="small" />
               {user.isVerified ? (
                 <Chip icon={<VerifiedRoundedIcon />} label="Verified" color="success" variant="outlined" size="small" />

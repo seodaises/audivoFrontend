@@ -18,3 +18,6 @@ export const MODERATE = "/moderate";
 export const ROLES = "/roles";
 export const ADMINS = "/admins";
 export const CONTACT_QUERIES = "/contact-queries";
+export const MANAGE_ARTISTS = "/manage-artists";
+export const MANAGE_CATALOG = "/manage-catalog";
+export const MY_ARTIST = "/my-artist";

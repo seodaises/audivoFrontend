@@ -16,11 +16,17 @@ import ManageUsersPage from './pages/ManageUsersPage';
 import ManageRolesPage from './pages/ManageRolesPage';
 import ManageAdminsPage from './pages/ManageAdminsPage';
 import ContactQueriesPage from './pages/ContactQueriesPage';
+import ManageArtistsPage from './pages/ManageArtistsPage';
 import BrowsePage from './pages/BrowsePage';
 import ArtistStudioPage from './pages/ArtistStudioPage';
 import PlayerProvider from './components/PlayerProvider';
 import NowPlayingBar from './components/NowPlayingBar';
-import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES,} from './constants/route_constant';
+import LibraryPage from './pages/LibraryPage';
+import AlbumPage from './pages/AlbumPage';
+import ArtistPage from './pages/ArtistPage';
+import ManageCatalogPage from './pages/ManageCatalogPage';
+import MyArtistProfilePage from './pages/MyArtistProfilePage';
+import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES, MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST,} from './constants/route_constant';
 
 const Placeholder = ({ title }) => <Typography variant="h4" sx={{ fontWeight: 800 }}>{title}</Typography>;
 
@@ -56,13 +62,14 @@ export default function App() {
           {/* Public (logged-out) */}
           <Route path={LOGIN} element={<LoginPage />} />
           <Route path={REGISTER} element={<RegisterPage />} />
-          <Route path={RESET_PASSWORD} element={<ResetPasswordPage />} />
-
-          {/* Requires login */}
+          <Route path={RESET_PASSWORD} element={<ResetPasswordPage />} /> 
+          {/* Protected (logged-in) */}
           <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-            <Route path={DASHBOARD} element={<Dashboard />} />
+          <Route path={DASHBOARD} element={<Dashboard />} />
             <Route path={BROWSE} element={<BrowsePage />} />
-            <Route path={LIBRARY} element={<Placeholder title="Library" />} />
+            <Route path={LIBRARY} element={<LibraryPage />} />
+            <Route path="/album/:id" element={<AlbumPage />} />
+            <Route path="/artist/:username" element={<ArtistPage />} />
             <Route path={UPLOAD} element={<ArtistStudioPage />} />
             <Route path={SONGS} element={<Placeholder title="Delete Songs" />} />
             <Route path={FEATURE} element={<Placeholder title="Feature Songs" />} />
@@ -72,8 +79,15 @@ export default function App() {
             <Route path={ROLES} element={<ManageRolesPage />} />
             <Route path={ADMINS} element={<ManageAdminsPage />} />
             <Route path={CONTACT_QUERIES} element={<ContactQueriesPage />} />
+            <Route path={MANAGE_ARTISTS} element={<ManageArtistsPage />} />
+            <Route path={MANAGE_CATALOG} element={<ManageCatalogPage />} />
+            <Route path={ROLES} element={<ManageRolesPage />} />
+            <Route path={ADMINS} element={<ManageAdminsPage />} />
+            <Route path={CONTACT_QUERIES} element={<ContactQueriesPage />} />
+            <Route path={MANAGE_ARTISTS} element={<ManageArtistsPage />} />
+            <Route path={MY_ARTIST} element={<MyArtistProfilePage />} />
           </Route>
-
+          {/* Catch-all */}
           <Route path="*" element={<Navigate to={DASHBOARD} replace />} />
         </Routes>
       </BrowserRouter>

@@ -41,6 +41,39 @@ export function searchCatalog(q) {
   return api(`/catalog/search?${params.toString()}`).then((res) => res.data);
 }
 
+// ---- Detail reads (public/self pages) ----
+
+// GET /albums/:id -> album detail with songs + artist.
+// The backend returns published albums to anyone, and unpublished ones ONLY to
+// the owning artist (it 404s otherwise). Shape:
+// { id, title, coverUrl, status, isSingle, releaseDate,
+//   artist:{ id, stageName, username }|null,
+//   songs:[{ id, title, trackNumber, durationSeconds, status }] }
+// Note artist.username — AlbumPage uses it to link to the artist page.
+export function fetchAlbum(albumId) {
+  return api(`/albums/${albumId}`).then((res) => res.data);
+}
+
+// GET /catalog/artists/:username -> the PUBLIC artist page (published only).
+// Shape: { profile:{ id, stageName, bio, avatarUrl, isVerified, ... },
+//          username, albums:[{ id, title, coverUrl, releaseDate, isSingle }],
+//          songs:[{ id, title, albumId, trackNumber, durationSeconds }] }
+// 404s if the username doesn't exist or the user isn't an artist.
+export function fetchArtistByUsername(username) {
+  return api(`/catalog/artists/${encodeURIComponent(username)}`).then((res) => res.data);
+}
+
+// GET /artist/catalog -> the LOGGED-IN user's OWN catalog, ALL statuses
+// (drafts + archived + published) for the Library / self view. Non-artists get
+// { isArtist:false, profile:null, albums:[], songs:[] } — not a 404. Shape:
+// { isArtist, profile,
+//   albums:[{ id, title, coverUrl, status, isSingle, releaseDate }],
+//   songs:[{ id, title, albumId, status, trackNumber, durationSeconds,
+//            coverUrl, artist:{id,stageName}, genres:[{id,name}] }] }
+export function fetchMyCatalog() {
+  return api('/artist/catalog').then((res) => res.data);
+}
+
 // The audio stream URL for a song. Not an api() call — this is a raw URL fed
 // straight to an <audio> element's src. It hits the protected file-serve route;
 // the auth cookie rides along because the <audio> tag uses
@@ -66,10 +99,10 @@ export function getMyArtistProfile() {
 }
 
 // POST /albums { title, coverUrl?, releaseDate?, isSingle? }  (requires verified)
-export function createAlbum({ title, coverUrl, releaseDate, isSingle }) {
+export function createAlbum({ title, coverUrl, description, releaseDate, isSingle }) {
   return api('/albums', {
     method: 'POST',
-    body: { title, coverUrl, releaseDate, isSingle },
+    body: { title, coverUrl, description, releaseDate, isSingle },
   }).then((res) => res.data);
 }
 
@@ -84,6 +117,74 @@ export function setAlbumStatus(albumId, status) {
 // PATCH /songs/:id/status { status }
 export function setSongStatus(songId, status) {
   return api(`/songs/${songId}/status`, {
+    method: 'PATCH',
+    body: { status },
+  }).then((res) => res.data);
+}
+
+// PATCH /albums/:id { coverUrl?, title?, releaseDate? } — edit album fields.
+// Used by the studio to attach a cover URL after (or instead of) creation.
+export function updateAlbum(albumId, patch) {
+  return api(`/albums/${albumId}`, {
+    method: 'PATCH',
+    body: patch,
+  }).then((res) => res.data);
+}
+
+// PATCH /songs/:id — edit an owned song's title (and optionally track number).
+// Owner-gated on the backend. patch = { title?, trackNumber?, durationSeconds? }.
+export function updateSong(songId, patch) {
+  return api(`/songs/${songId}`, { method: 'PATCH', body: patch }).then((res) => res.data);
+}
+
+// PATCH /artist/profile — update MY artist profile (stage name, bio, avatar).
+// Goes through requireOwnProfile on the backend. patch = { stageName?, bio?, avatarUrl? }.
+export function updateMyProfile(patch) {
+  return api('/artist/profile', { method: 'PATCH', body: patch }).then((res) => res.data);
+}
+// ---- Admin catalog (manage_catalog permission) ----
+
+// GET /admin/catalog/artists?verified=true|false — list artist profiles.
+// Omit `verified` for all; pass false for the approval queue.
+export function adminListArtists({ verified, page = 1, limit = 50 } = {}) {
+  const params = new URLSearchParams({ page, limit });
+  if (verified !== undefined) params.set('verified', String(verified));
+  return api(`/admin/catalog/artists?${params.toString()}`).then((res) => res.data);
+}
+
+// PATCH /admin/catalog/artists/:id/verify { isVerified }
+export function verifyArtist(artistProfileId, isVerified = true) {
+  return api(`/admin/catalog/artists/${artistProfileId}/verify`, {
+    method: 'PATCH',
+    body: { isVerified },
+  }).then((res) => res.data);
+}
+
+// GET /admin/catalog/songs?status= — all songs, any owner/status.
+export function adminListSongs({ status, page = 1, limit = 50 } = {}) {
+  const params = new URLSearchParams({ page, limit });
+  if (status) params.set('status', status);
+  return api(`/admin/catalog/songs?${params.toString()}`).then((res) => res.data);
+}
+
+// GET /admin/catalog/albums?status= — all albums, any owner/status.
+export function adminListAlbums({ status, page = 1, limit = 50 } = {}) {
+  const params = new URLSearchParams({ page, limit });
+  if (status) params.set('status', status);
+  return api(`/admin/catalog/albums?${params.toString()}`).then((res) => res.data);
+}
+
+// PATCH /admin/catalog/songs/:id/status { status } — admin force-set (bypasses ownership).
+export function adminSetSongStatus(songId, status) {
+  return api(`/admin/catalog/songs/${songId}/status`, {
+    method: 'PATCH',
+    body: { status },
+  }).then((res) => res.data);
+}
+
+// PATCH /admin/catalog/albums/:id/status { status } — admin force-set (bypasses ownership).
+export function adminSetAlbumStatus(albumId, status) {
+  return api(`/admin/catalog/albums/${albumId}/status`, {
     method: 'PATCH',
     body: { status },
   }).then((res) => res.data);

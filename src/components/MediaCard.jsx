@@ -7,8 +7,11 @@ import PauseRoundedIcon from "@mui/icons-material/PauseRounded";
 // coverless tracks each get their own colour instead of an identical grey box.
 // Same id -> same gradient every render, so the grid doesn't shimmer on reload.
 const gradientFor = (seed = 0) => {
-  const h1 = (seed * 47) % 360;          // two hues spread apart from the seed
-  const h2 = (h1 + 40) % 360;
+  // 137.508° is the golden angle — stepping the hue by it means consecutive ids
+  // land far apart on the colour wheel instead of clustering (ids 1,2,3 were all
+  // mapping into the green band before). +50 keeps the two stops distinct.
+  const h1 = Math.round((seed * 137.508)) % 360;
+  const h2 = (h1 + 50) % 360;
   return `linear-gradient(135deg, hsl(${h1} 55% 45%), hsl(${h2} 60% 35%))`;
 };
 
@@ -21,18 +24,34 @@ export default function MediaCard({
   isPlaying = false,
   onTogglePlay,
   onClick,
+  hideText = false,   // suppress built-in title/subtitle so the caller can render its own
+  disableHoverLift = false,  // suppress the translateY lift (for cards flush against a meta panel)
+  flushBottom = false,  // square the bottom corners so a panel can butt flush beneath it
+  bare = false,         // strip card chrome (border/shadow/radius) for use inside a wrapper
 }) {
   const hasImage = Boolean(imageUrl);
 
   return (
     <Card
+      elevation={bare ? 0 : 1}
+      square={bare}
       sx={{
         width: 180,
         flexShrink: 0,
-        borderRadius: 3,
+        ...(bare
+          ? { borderRadius: 0, boxShadow: 'none', bgcolor: 'transparent', backgroundImage: 'none' }
+          : {
+              borderRadius: 3,
+              ...(flushBottom && {
+                borderBottomLeftRadius: 0,
+                borderBottomRightRadius: 0,
+              }),
+            }),
         cursor: onClick ? "pointer" : "default",
         transition: "transform 0.2s ease, box-shadow 0.2s ease",
-        "&:hover": { transform: "translateY(-4px)", boxShadow: 6 },
+        "&:hover": disableHoverLift
+          ? (bare ? {} : { boxShadow: 6 })
+          : { transform: "translateY(-4px)", boxShadow: 6 },
         "&:hover .play-fab": { opacity: 1 },
       }}
     >
@@ -75,10 +94,15 @@ export default function MediaCard({
         )}
       </Box>
 
-      <CardContent sx={{ p: 1.5 }}>
-        <Typography variant="subtitle2" noWrap sx={{ fontWeight: 700 }}>{title}</Typography>
-        <Typography variant="caption" color="text.secondary" noWrap>{subtitle}</Typography>
-      </CardContent>
+      {/* When a caller wants to render its own text block below the cover (for
+          a custom layout/hierarchy), it passes hideText and omits title/subtitle
+          here. Existing callers pass neither and keep the built-in labels. */}
+      {!hideText && (
+        <CardContent sx={{ p: 1.5 }}>
+          <Typography variant="subtitle2" noWrap sx={{ fontWeight: 700 }}>{title}</Typography>
+          <Typography variant="caption" color="text.secondary" noWrap>{subtitle}</Typography>
+        </CardContent>
+      )}
     </Card>
   );
 }

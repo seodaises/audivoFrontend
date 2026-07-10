@@ -242,7 +242,7 @@ export default function ManageAdminsPage() {
                   return (
                     <TableRow key={u.id} hover>
                       <TableCell>
-                        <Stack direction="row" spacing={1.5} alignItems="center">
+                        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
                           <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 14 }}>
                             {(u.displayName || u.username || '?').charAt(0).toUpperCase()}
                           </Avatar>

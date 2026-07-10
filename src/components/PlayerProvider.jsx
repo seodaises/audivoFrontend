@@ -17,10 +17,22 @@ export default function PlayerProvider({ children }) {
 
   // Load a new source ONLY when the track id changes. Watching `current.id`
   // (not the whole object) avoids reloading the file on every play/pause.
+  // This one effect now also covers next/prev/auto-advance, since each of
+  // those changes current.id — the new track's file loads here, and the
+  // play/pause effect below starts it because isPlaying is true.
   const loadedIdRef = useRef(null);
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !current) return;
+    if (!audio) return;
+    if (!current) {
+      // Player was reset (e.g. logout): stop and detach the source so audio
+      // truly stops instead of lingering.
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+      loadedIdRef.current = null;
+      return;
+    }
     if (loadedIdRef.current !== current.id) {
       audio.src = songFileUrl(current.id);
       loadedIdRef.current = current.id;
