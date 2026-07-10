@@ -28,6 +28,7 @@ const storage = createLocalStorage();
 import colorModeReducer from './slices/colorModeSlice';
 import sidebarReducer from './slices/sidebarSlice';
 import authReducer from './slices/authSlice';
+import playerReducer from './slices/playerSlice';
 
 // Only UI preferences are persisted. auth is intentionally NOT persisted: the
 // session lives in an httpOnly cookie (handled by the browser/backend), and
@@ -43,6 +44,7 @@ const rootReducer = combineReducers({
   colorMode: colorModeReducer,
   sidebar: sidebarReducer,
   auth: authReducer,
+  player: playerReducer,
 });
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

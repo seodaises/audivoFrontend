@@ -16,6 +16,10 @@ import ManageUsersPage from './pages/ManageUsersPage';
 import ManageRolesPage from './pages/ManageRolesPage';
 import ManageAdminsPage from './pages/ManageAdminsPage';
 import ContactQueriesPage from './pages/ContactQueriesPage';
+import BrowsePage from './pages/BrowsePage';
+import ArtistStudioPage from './pages/ArtistStudioPage';
+import PlayerProvider from './components/PlayerProvider';
+import NowPlayingBar from './components/NowPlayingBar';
 import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES,} from './constants/route_constant';
 
 const Placeholder = ({ title }) => <Typography variant="h4" sx={{ fontWeight: 800 }}>{title}</Typography>;
@@ -45,6 +49,7 @@ function AuthBootstrap() {
 export default function App() {
   return (
     <AppThemeProvider>
+      <PlayerProvider>
       <AuthBootstrap />
       <BrowserRouter>
         <Routes>
@@ -56,9 +61,9 @@ export default function App() {
           {/* Requires login */}
           <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
             <Route path={DASHBOARD} element={<Dashboard />} />
-            <Route path={BROWSE} element={<Placeholder title="Browse" />} />
+            <Route path={BROWSE} element={<BrowsePage />} />
             <Route path={LIBRARY} element={<Placeholder title="Library" />} />
-            <Route path={UPLOAD} element={<Placeholder title="Upload Songs" />} />
+            <Route path={UPLOAD} element={<ArtistStudioPage />} />
             <Route path={SONGS} element={<Placeholder title="Delete Songs" />} />
             <Route path={FEATURE} element={<Placeholder title="Feature Songs" />} />
             <Route path={USERS} element={<ManageUsersPage />} />
@@ -72,6 +77,8 @@ export default function App() {
           <Route path="*" element={<Navigate to={DASHBOARD} replace />} />
         </Routes>
       </BrowserRouter>
+      <NowPlayingBar />
+      </PlayerProvider>
     </AppThemeProvider>
   );
 }
