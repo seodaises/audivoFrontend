@@ -14,6 +14,11 @@ export function fetchGenres() {
   return api('/genres').then((res) => res.data);
 }
 
+// POST /genres { name } — Admin + manage_catalog. 409 if the name already exists.
+export function createGenre(name) {
+  return api('/genres', { method: 'POST', body: { name } }).then((res) => res.data);
+}
+
 // GET /catalog/songs?page=&limit=&genre=
 // -> { songs: [{ id, title, albumId, artist:{id,stageName}, durationSeconds,
 //               genres:[{id,name}] }], pagination:{page,limit,total,totalPages} }
@@ -146,9 +151,10 @@ export function updateMyProfile(patch) {
 
 // GET /admin/catalog/artists?verified=true|false — list artist profiles.
 // Omit `verified` for all; pass false for the approval queue.
-export function adminListArtists({ verified, page = 1, limit = 50 } = {}) {
+export function adminListArtists({ verified, search, page = 1, limit = 50 } = {}) {
   const params = new URLSearchParams({ page, limit });
   if (verified !== undefined) params.set('verified', String(verified));
+  if (search) params.set('search', search);
   return api(`/admin/catalog/artists?${params.toString()}`).then((res) => res.data);
 }
 
@@ -160,17 +166,19 @@ export function verifyArtist(artistProfileId, isVerified = true) {
   }).then((res) => res.data);
 }
 
-// GET /admin/catalog/songs?status= — all songs, any owner/status.
-export function adminListSongs({ status, page = 1, limit = 50 } = {}) {
+// GET /admin/catalog/songs?status=&search= — all songs, any owner/status.
+export function adminListSongs({ status, search, page = 1, limit = 50 } = {}) {
   const params = new URLSearchParams({ page, limit });
   if (status) params.set('status', status);
+  if (search) params.set('search', search);
   return api(`/admin/catalog/songs?${params.toString()}`).then((res) => res.data);
 }
 
-// GET /admin/catalog/albums?status= — all albums, any owner/status.
-export function adminListAlbums({ status, page = 1, limit = 50 } = {}) {
+// GET /admin/catalog/albums?status=&search= — all albums, any owner/status.
+export function adminListAlbums({ status, search, page = 1, limit = 50 } = {}) {
   const params = new URLSearchParams({ page, limit });
   if (status) params.set('status', status);
+  if (search) params.set('search', search);
   return api(`/admin/catalog/albums?${params.toString()}`).then((res) => res.data);
 }
 

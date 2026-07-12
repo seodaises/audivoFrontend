@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Paper, Typography, Stack, Button, Table, TableHead, TableBody, TableRow,
   TableCell, TableContainer, Chip, Avatar, Alert, Skeleton, TablePagination,
-  ToggleButton, ToggleButtonGroup, Snackbar, Link,
+  ToggleButton, ToggleButtonGroup, Snackbar, Link, TextField, InputAdornment,
 } from '@mui/material';
 import VerifiedRoundedIcon from '@mui/icons-material/VerifiedRounded';
 import BlockRoundedIcon from '@mui/icons-material/BlockRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import { useNavigate } from 'react-router-dom';
 import { adminListArtists, verifyArtist } from '../api/catalog';
 
@@ -28,6 +29,20 @@ export default function ManageArtistsPage() {
   // 'pending' | 'verified' | 'all'
   const [filter, setFilter] = useState('pending');
 
+  // `search` = what's typed; `debounced` = what we query with (350ms after the
+  // last keystroke), so typing doesn't fire a request per character.
+  const [search, setSearch] = useState('');
+  const [debounced, setDebounced] = useState('');
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // A new search resets paging — otherwise you can be stranded on "page 4" of a
+  // result set that now has one page, and the table renders empty.
+  useEffect(() => { setPage(0); }, [debounced]);
+
   const verifiedParam =
     filter === 'pending' ? false : filter === 'verified' ? true : undefined;
 
@@ -37,6 +52,7 @@ export default function ManageArtistsPage() {
     try {
       const res = await adminListArtists({
         verified: verifiedParam,
+        search: debounced || undefined,
         page: page + 1,          // backend is 1-indexed
         limit,
       });
@@ -47,7 +63,7 @@ export default function ManageArtistsPage() {
     } finally {
       setLoading(false);
     }
-  }, [verifiedParam, page, limit]);
+  }, [verifiedParam, debounced, page, limit]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -65,6 +81,13 @@ export default function ManageArtistsPage() {
     }
   };
 
+  // Say WHY the table is empty — a no-hit search should not look like a bug.
+  const emptyLabel = () => {
+    if (debounced) return `No artists matching "${debounced}".`;
+    if (filter === 'pending') return 'No artists waiting for verification.';
+    return 'No artists to show.';
+  };
+
   return (
     <Box>
       <Stack
@@ -79,16 +102,36 @@ export default function ManageArtistsPage() {
           </Typography>
         </Box>
 
-        <ToggleButtonGroup
-          size="small"
-          exclusive
-          value={filter}
-          onChange={(_, v) => { if (v) { setFilter(v); setPage(0); } }}
-        >
-          <ToggleButton value="pending">Pending</ToggleButton>
-          <ToggleButton value="verified">Verified</ToggleButton>
-          <ToggleButton value="all">All</ToggleButton>
-        </ToggleButtonGroup>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}
+          sx={{ alignItems: { sm: 'center' } }}>
+          <TextField
+            size="small"
+            placeholder="Search name, username, or email…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            sx={{ width: { xs: '100%', sm: 280 } }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchRoundedIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={filter}
+            onChange={(_, v) => { if (v) { setFilter(v); setPage(0); } }}
+          >
+            <ToggleButton value="pending">Pending</ToggleButton>
+            <ToggleButton value="verified">Verified</ToggleButton>
+            <ToggleButton value="all">All</ToggleButton>
+          </ToggleButtonGroup>
+        </Stack>
       </Stack>
 
       {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
@@ -116,9 +159,7 @@ export default function ManageArtistsPage() {
                 <TableRow>
                   <TableCell colSpan={5}>
                     <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
-                      {filter === 'pending'
-                        ? 'No artists waiting for verification.'
-                        : 'No artists to show.'}
+                      {emptyLabel()}
                     </Typography>
                   </TableCell>
                 </TableRow>

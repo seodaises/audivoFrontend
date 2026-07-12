@@ -26,6 +26,8 @@ import AlbumPage from './pages/AlbumPage';
 import ArtistPage from './pages/ArtistPage';
 import ManageCatalogPage from './pages/ManageCatalogPage';
 import MyArtistProfilePage from './pages/MyArtistProfilePage';
+import RequirePermission from './components/RequirePermission';
+import { PERMISSIONS } from './auth/permissions';
 import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES, MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST,} from './constants/route_constant';
 
 const Placeholder = ({ title }) => <Typography variant="h4" sx={{ fontWeight: 800 }}>{title}</Typography>;
@@ -64,30 +66,83 @@ export default function App() {
           <Route path={REGISTER} element={<RegisterPage />} />
           <Route path={RESET_PASSWORD} element={<ResetPasswordPage />} /> 
           {/* Protected (logged-in) */}
-          <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-          <Route path={DASHBOARD} element={<Dashboard />} />
+         <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
+            {/* Open to any authenticated user. */}
+            <Route path={DASHBOARD} element={<Dashboard />} />
             <Route path={BROWSE} element={<BrowsePage />} />
             <Route path={LIBRARY} element={<LibraryPage />} />
             <Route path="/album/:id" element={<AlbumPage />} />
             <Route path="/artist/:username" element={<ArtistPage />} />
-            <Route path={UPLOAD} element={<ArtistStudioPage />} />
-            <Route path={SONGS} element={<Placeholder title="Delete Songs" />} />
-            <Route path={FEATURE} element={<Placeholder title="Feature Songs" />} />
-            <Route path={USERS} element={<ManageUsersPage />} />
-            <Route path={ANALYTICS} element={<Placeholder title="Analytics" />} />
-            <Route path={MODERATE} element={<Placeholder title="Moderate Comments" />} />
-            <Route path={ROLES} element={<ManageRolesPage />} />
-            <Route path={ADMINS} element={<ManageAdminsPage />} />
-            <Route path={CONTACT_QUERIES} element={<ContactQueriesPage />} />
-            <Route path={MANAGE_ARTISTS} element={<ManageArtistsPage />} />
-            <Route path={MANAGE_CATALOG} element={<ManageCatalogPage />} />
-            <Route path={ROLES} element={<ManageRolesPage />} />
-            <Route path={ADMINS} element={<ManageAdminsPage />} />
-            <Route path={CONTACT_QUERIES} element={<ContactQueriesPage />} />
-            <Route path={MANAGE_ARTISTS} element={<ManageArtistsPage />} />
-            <Route path={MY_ARTIST} element={<MyArtistProfilePage />} />
+
+            {/* Artist-only. Mirrors the Sidebar's permission map exactly — if a
+                nav item is gated on a permission, its route must be too, or the
+                URL bar is a way around the sidebar. */}
+            <Route path={UPLOAD} element={
+              <RequirePermission permission={PERMISSIONS.UPLOAD_SONGS}>
+                <ArtistStudioPage />
+              </RequirePermission>
+            } />
+            <Route path={MY_ARTIST} element={
+              <RequirePermission permission={PERMISSIONS.UPLOAD_SONGS}>
+                <MyArtistProfilePage />
+              </RequirePermission>
+            } />
+            <Route path={SONGS} element={
+              <RequirePermission permission={PERMISSIONS.DELETE_SONGS}>
+                <Placeholder title="Delete Songs" />
+              </RequirePermission>
+            } />
+            <Route path={FEATURE} element={
+              <RequirePermission permission={PERMISSIONS.FEATURE_SONGS}>
+                <Placeholder title="Feature Songs" />
+              </RequirePermission>
+            } />
+
+            {/* Admin. */}
+            <Route path={USERS} element={
+              <RequirePermission permission={PERMISSIONS.MANAGE_USERS}>
+                <ManageUsersPage />
+              </RequirePermission>
+            } />
+            <Route path={CONTACT_QUERIES} element={
+              <RequirePermission permission={PERMISSIONS.MANAGE_USERS}>
+                <ContactQueriesPage />
+              </RequirePermission>
+            } />
+            <Route path={MANAGE_ARTISTS} element={
+              <RequirePermission permission={PERMISSIONS.MANAGE_CATALOG}>
+                <ManageArtistsPage />
+              </RequirePermission>
+            } />
+            <Route path={MANAGE_CATALOG} element={
+              <RequirePermission permission={PERMISSIONS.MANAGE_CATALOG}>
+                <ManageCatalogPage />
+              </RequirePermission>
+            } />
+            <Route path={ANALYTICS} element={
+              <RequirePermission permission={PERMISSIONS.VIEW_ANALYTICS}>
+                <Placeholder title="Analytics" />
+              </RequirePermission>
+            } />
+            <Route path={MODERATE} element={
+              <RequirePermission permission={PERMISSIONS.MODERATE_COMMENTS}>
+                <Placeholder title="Moderate Comments" />
+              </RequirePermission>
+            } />
+
+            {/* Super Admin. */}
+            <Route path={ROLES} element={
+              <RequirePermission permission={PERMISSIONS.MANAGE_ROLES}>
+                <ManageRolesPage />
+              </RequirePermission>
+            } />
+            <Route path={ADMINS} element={
+              <RequirePermission permission={PERMISSIONS.MANAGE_ROLES}>
+                <ManageAdminsPage />
+              </RequirePermission>
+            } />
           </Route>
-          {/* Catch-all */}
+
           <Route path="*" element={<Navigate to={DASHBOARD} replace />} />
         </Routes>
       </BrowserRouter>

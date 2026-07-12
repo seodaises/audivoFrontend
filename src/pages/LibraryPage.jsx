@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Stack, Alert, Skeleton, Avatar, Chip, Divider, Button,
   List, ListItemButton, ListItemAvatar, ListItemText, IconButton, Tooltip, Link,
+  CircularProgress, TextField, InputAdornment, ToggleButton, ToggleButtonGroup,
   alpha,
 } from '@mui/material';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
@@ -13,11 +14,15 @@ import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import UnarchiveRoundedIcon from '@mui/icons-material/UnarchiveRounded';
 import PublishRoundedIcon from '@mui/icons-material/PublishRounded';
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import QueueMusicRoundedIcon from '@mui/icons-material/QueueMusicRounded';
 import { useSelector, useDispatch } from 'react-redux';
 import MediaCard from '../components/MediaCard';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
 import { fetchMyCatalog, setSongStatus, setAlbumStatus } from '../api/catalog';
-import { UPLOAD } from '../constants/route_constant';
+import { UPLOAD, BROWSE } from '../constants/route_constant';
+import { useAuth } from '../store/hooks/useAuth';
+import { PERMISSIONS } from '../auth/permissions';
 
 const fmtDuration = (secs) => {
   if (secs == null) return '—';
@@ -38,33 +43,84 @@ const fmtDate = (iso) => {
 const statusColor = (status) =>
   status === 'published' ? 'success' : status === 'archived' ? 'default' : 'warning';
 
+// Case-insensitive substring match. Deliberately dumb — this filters an array
+// that's ALREADY in memory, so there's no query to optimize.
+const matches = (haystack, needle) =>
+  String(haystack || '').toLowerCase().includes(needle);
+
 export default function LibraryPage() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
+  const { can } = useAuth();
 
   const playingId = useSelector((s) => (s.player.isPlaying ? s.player.current?.id : null));
   const loadedId = useSelector((s) => s.player.current?.id);
 
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true);       // FIRST load only
+  const [refreshing, setRefreshing] = useState(false); // background refetch
   const [err, setErr] = useState(null);
   const [busyId, setBusyId] = useState(null);   // which row is mid-write
   const [hoverId, setHoverId] = useState(null);  // which album card is hovered (toggle reveal)
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null);
+  // Search + status filter. Both are pure CLIENT-side: fetchMyCatalog() returns
+  // the whole catalog in one payload (no pagination), so everything we'd filter
+  // on is already in `data`. No endpoint change, no debounce — there's nothing
+  // being fetched, so it's instant on every keystroke.
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState(''); // '' = all
+
+  // upload_songs is the Artist permission. Gate on the PERMISSION, not the role
+  // name — the permission list comes from the DB via /me, so a new role that
+  // grants uploading works here with zero frontend changes.
+  const canUpload = can(PERMISSIONS.UPLOAD_SONGS);
+
+  // `silent` refetches WITHOUT tearing the page down to skeletons. The full
+  // skeleton is only correct on first mount, when there's nothing on screen yet.
+  // After a status write we already have data — blanking it and rebuilding is
+  // what caused the reload-flash.
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+    setErr(null);
     try {
       setData(await fetchMyCatalog());
     } catch (e) {
       setErr(e.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load]);   // first mount -> full skeleton
 
-  const tracks = (data?.songs || []).map((s) => ({
+  const needle = search.trim().toLowerCase();
+
+  // Filtered views. useMemo so we're not re-filtering on every unrelated render
+  // (hover state changes a lot). Albums match on title; songs match on title OR
+  // their album's title, so searching an album name surfaces its tracks too.
+  const albums = useMemo(() => {
+    const all = data?.albums || [];
+    return all.filter((a) =>
+      (!statusFilter || a.status === statusFilter) &&
+      (!needle || matches(a.title, needle))
+    );
+  }, [data, needle, statusFilter]);
+
+  const songs = useMemo(() => {
+    const all = data?.songs || [];
+    return all.filter((s) =>
+      (!statusFilter || s.status === statusFilter) &&
+      (!needle || matches(s.title, needle) || matches(s.album?.title, needle))
+    );
+  }, [data, needle, statusFilter]);
+
+  const isFiltered = Boolean(needle || statusFilter);
+
+  // The play queue is built from the VISIBLE songs, so skipping next/prev walks
+  // what the artist can actually see — not a hidden full catalog.
+  const tracks = songs.map((s) => ({
     id: s.id, title: s.title,
     artist: s.artist ?? null,
     coverUrl: s.coverUrl ?? null,
@@ -77,19 +133,19 @@ export default function LibraryPage() {
   };
 
   // Owner status change on MY song. The backend route is owner-gated, so this
-  // only ever touches songs I own — an artist archiving/publishing their own.
+  // only ever touches songs I own. We refetch rather than optimistically guess —
+  // album status CASCADES to songs on the backend, and replicating that cascade
+  // client-side would duplicate business logic that belongs in one place.
   const changeSongStatus = async (song, next) => {
     setBusyId(`song-${song.id}`);
-    try { await setSongStatus(song.id, next); await load(); }
+    try { await setSongStatus(song.id, next); await load({ silent: true }); }
     catch (e) { setErr(e.message); }
     finally { setBusyId(null); }
   };
 
-  // Album status change cascades to tracks on the backend (publish -> draft
-  // tracks published; archive -> all tracks archived).
   const changeAlbumStatus = async (album, next) => {
     setBusyId(`album-${album.id}`);
-    try { await setAlbumStatus(album.id, next); await load(); }
+    try { await setAlbumStatus(album.id, next); await load({ silent: true }); }
     catch (e) { setErr(e.message); }
     finally { setBusyId(null); }
   };
@@ -111,18 +167,32 @@ export default function LibraryPage() {
     return <Box sx={{ pb: 12 }}><Alert severity="error">{err}</Alert></Box>;
   }
 
+  // Not an artist yet. Two audiences: someone who CAN upload (nudge to Studio),
+  // and everyone else (Listener/Moderator/Admin) — they have no upload_songs
+  // permission and the /upload route bounces them, so give them a real action.
   if (!data?.isArtist) {
     return (
       <Box sx={{ pb: 12, textAlign: 'center', py: 8 }}>
         <LibraryMusicRoundedIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-        <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>Your library is empty</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Become an artist and upload your first track to see it here.
+        <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
+          Your library is empty
         </Typography>
-        <Button variant="contained" startIcon={<CloudUploadRoundedIcon />}
-          onClick={() => navigate(UPLOAD)}>
-          Go to Artist Studio
-        </Button>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          {canUpload
+            ? 'Set up your artist profile and upload your first track to see it here.'
+            : 'This is where your own releases would appear. Head to Browse to explore the catalog.'}
+        </Typography>
+        {canUpload ? (
+          <Button variant="contained" startIcon={<CloudUploadRoundedIcon />}
+            onClick={() => navigate(UPLOAD)}>
+            Go to Artist Studio
+          </Button>
+        ) : (
+          <Button variant="contained" startIcon={<QueueMusicRoundedIcon />}
+            onClick={() => navigate(BROWSE)}>
+            Browse music
+          </Button>
+        )}
       </Box>
     );
   }
@@ -136,7 +206,7 @@ export default function LibraryPage() {
           <span>
             <IconButton size="small" disabled={busy}
               onClick={(e) => { e.stopPropagation(); changeSongStatus(s, 'published'); }}>
-              <UnarchiveRoundedIcon fontSize="small" />
+              {busy ? <CircularProgress size={16} /> : <UnarchiveRoundedIcon fontSize="small" />}
             </IconButton>
           </span>
         </Tooltip>
@@ -158,7 +228,7 @@ export default function LibraryPage() {
           <span>
             <IconButton size="small" color="warning" disabled={busy}
               onClick={(e) => { e.stopPropagation(); changeSongStatus(s, 'archived'); }}>
-              <Inventory2RoundedIcon fontSize="small" />
+              {busy ? <CircularProgress size={16} color="inherit" /> : <Inventory2RoundedIcon fontSize="small" />}
             </IconButton>
           </span>
         </Tooltip>
@@ -195,11 +265,12 @@ export default function LibraryPage() {
             backdropFilter: 'blur(8px)',
             WebkitBackdropFilter: 'blur(8px)',
             boxShadow: `inset 0 1px 0 ${alpha('#fff', 0.15)}`,
-            // hover-reveal; stays clickable once shown. pointerEvents guards
-            // against clicking an invisible button when the card isn't hovered.
-            opacity: visible ? 1 : 0,
-            pointerEvents: visible ? 'auto' : 'none',
-            transform: visible ? 'scale(1)' : 'scale(0.9)',
+            // hover-reveal; stays clickable once shown. Mid-write, force it
+            // visible — otherwise the spinner vanishes the moment the pointer
+            // drifts off the card.
+            opacity: visible || busy ? 1 : 0,
+            pointerEvents: visible || busy ? 'auto' : 'none',
+            transform: visible || busy ? 'scale(1)' : 'scale(0.9)',
             transition: 'opacity .18s ease, transform .18s ease, background-color .18s ease',
             '&:hover': {
               bgcolor: alpha(t.palette[cfg.role].main, 0.24),
@@ -215,28 +286,73 @@ export default function LibraryPage() {
 
   return (
     <Box sx={{ pb: 16 }}>
-      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}
+        sx={{ justifyContent: 'space-between', alignItems: { md: 'center' }, mb: 2 }}>
         <Box>
-          <Typography variant="h4" sx={{ fontWeight: 800 }}>Your Library</Typography>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+            <Typography variant="h4" sx={{ fontWeight: 800 }}>Your Library</Typography>
+            {/* A quiet spinner while a status write settles — the page no longer
+                blanks, so this is the only hint that a refetch is in flight. */}
+            {refreshing && <CircularProgress size={16} />}
+          </Stack>
           <Typography variant="body2" color="text.secondary">
-            Everything you've created — drafts, published, and archived
+            Everything you've created: your drafts, published, and archived
           </Typography>
         </Box>
-        <Button variant="outlined" startIcon={<CloudUploadRoundedIcon />}
-          onClick={() => navigate(UPLOAD)}>
-          Upload
-        </Button>
+
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}
+          sx={{ alignItems: { sm: 'center' } }}>
+          <TextField
+            size="small"
+            placeholder="Search your catalog…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            sx={{ width: { xs: '100%', sm: 240 } }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchRoundedIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={statusFilter}
+            onChange={(_, v) => setStatusFilter(v ?? '')}
+            aria-label="filter by status"
+          >
+            <ToggleButton value="">All</ToggleButton>
+            <ToggleButton value="draft">Drafts</ToggleButton>
+            <ToggleButton value="published">Live</ToggleButton>
+            <ToggleButton value="archived">Archived</ToggleButton>
+          </ToggleButtonGroup>
+
+          {canUpload && (
+            <Button variant="outlined" startIcon={<CloudUploadRoundedIcon />}
+              onClick={() => navigate(UPLOAD)} sx={{ whiteSpace: 'nowrap' }}>
+              Upload
+            </Button>
+          )}
+        </Stack>
       </Stack>
 
-      {/* Albums */}
+      {/* Albums. The count shows filtered/total when a filter is active, so it's
+          obvious you're looking at a subset and not a shrinking catalog. */}
       <Typography variant="h6" sx={{ fontWeight: 700, mt: 3, mb: 1 }}>
-        Albums ({data.albums.length})
+        Albums ({isFiltered ? `${albums.length} of ${data.albums.length}` : data.albums.length})
       </Typography>
-      {data.albums.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>No albums yet.</Typography>
+      {albums.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {isFiltered ? 'No albums match your filters.' : 'No albums yet.'}
+        </Typography>
       ) : (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-          {data.albums.map((a) => {
+          {albums.map((a) => {
             const released = fmtDate(a.releaseDate);
             return (
               <Box
@@ -254,10 +370,6 @@ export default function LibraryPage() {
                   '&:hover': { borderColor: (t) => alpha(t.palette.text.primary, 0.22) },
                 }}
               >
-                {/* Cover sits inside the clipped card as a bare element (no
-                    border/shadow/radius of its own), so the outer card owns every
-                    corner and there's no nested-card outline or seam. hideText
-                    suppresses MediaCard's built-in labels. */}
                 <MediaCard
                   seed={a.id}
                   imageUrl={a.coverUrl || undefined}
@@ -267,9 +379,6 @@ export default function LibraryPage() {
                   onClick={() => navigate(`/album/${a.id}`)}
                 />
 
-                {/* Meta — borderless now; the outer card owns the border and
-                    corners. Title dominant; status + type + date recede. The icon
-                    toggle sits on the date row and fades in on hover. */}
                 <Box sx={{ p: 1.25 }}>
                   <Typography
                     variant="subtitle2"
@@ -306,9 +415,6 @@ export default function LibraryPage() {
                     </Typography>
                   </Stack>
 
-                  {/* Date + hover-reveal toggle share a row. The date shows in
-                      full; the icon toggle is fixed-width on the right. minHeight
-                      keeps the row stable whether the toggle is shown. */}
                   <Stack direction="row" spacing={0.5}
                     sx={{ alignItems: 'center', justifyContent: 'space-between', mt: 0.5, minHeight: 32 }}>
                     <Stack direction="row" spacing={0.5}
@@ -329,15 +435,16 @@ export default function LibraryPage() {
 
       <Divider sx={{ mb: 1 }} />
 
-      {/* Songs */}
       <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-        Songs ({data.songs.length})
+        Songs ({isFiltered ? `${songs.length} of ${data.songs.length}` : data.songs.length})
       </Typography>
-      {data.songs.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>No songs yet.</Typography>
+      {songs.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+          {isFiltered ? 'No songs match your filters.' : 'No songs yet.'}
+        </Typography>
       ) : (
         <List>
-          {data.songs.map((s, idx) => {
+          {songs.map((s, idx) => {
             const isThis = playingId === s.id;
             return (
               <ListItemButton key={s.id} onClick={() => onPlaySong(idx)} sx={{ borderRadius: 2 }}>

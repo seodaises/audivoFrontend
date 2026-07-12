@@ -2,26 +2,33 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Paper, Typography, Stack, Tabs, Tab, Table, TableHead, TableBody,
   TableRow, TableCell, TableContainer, Chip, Alert, Skeleton, TextField,
-  MenuItem, IconButton, Tooltip,
+  MenuItem, IconButton, Tooltip, Button, Snackbar, InputAdornment,
 } from '@mui/material';
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import UnarchiveRoundedIcon from '@mui/icons-material/UnarchiveRounded';
 import PublishRoundedIcon from '@mui/icons-material/PublishRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import {
   adminListSongs, adminListAlbums,
   adminSetSongStatus, adminSetAlbumStatus,
 } from '../api/catalog';
+import AddGenreDialog from '../components/AddGenreDialog';
+import { useAuth } from '../store/hooks/useAuth';
+import { PERMISSIONS } from '../auth/permissions';
 
 const STATUS_OPTIONS = ['', 'draft', 'published', 'archived'];
 const statusColor = (s) =>
   s === 'published' ? 'success' : s === 'archived' ? 'default' : 'warning';
 
-// Admin catalog console. Two tabs (Songs / Albums), a status filter, and per-row
-// status actions. Every write hits the ADMIN endpoints, which bypass ownership
-// (requireMinLevel(ADMIN) + manage_catalog) — so an admin can archive/publish
-// ANYONE's catalog, which is exactly the requirement. Mirrors the load/err/
-// useCallback pattern from ManageUsersPage.
+// Admin catalog console. Two tabs (Songs / Albums), a status filter, a title
+// search, and per-row status actions. Every write hits the ADMIN endpoints,
+// which bypass ownership (requireMinLevel(ADMIN) + manage_catalog) — so an admin
+// can archive/publish ANYONE's catalog, which is exactly the requirement.
+// Mirrors the load/err/useCallback pattern from ManageUsersPage.
 export default function ManageCatalogPage() {
+  const { can } = useAuth();
+
   const [tab, setTab] = useState('songs');      // 'songs' | 'albums'
   const [status, setStatus] = useState('');     // '' = all
   const [rows, setRows] = useState([]);
@@ -29,10 +36,31 @@ export default function ManageCatalogPage() {
   const [err, setErr] = useState(null);
   const [busyId, setBusyId] = useState(null);   // row mid-write, to disable its buttons
 
+  // Two search states: `search` is what's in the box (updates on every keystroke,
+  // so the input stays responsive), `debounced` is what we actually query with.
+  const [search, setSearch] = useState('');
+  const [debounced, setDebounced] = useState('');
+
+  // Genre creation lives here because a genre is catalog metadata, and this is
+  // the catalog console. Gated on manage_catalog to match the route's guard.
+  const [genreOpen, setGenreOpen] = useState(false);
+  const [toast, setToast] = useState('');
+
+  // Wait for a pause in typing before hitting the API — otherwise every keystroke
+  // fires a request. 350ms is the usual sweet spot.
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
     try {
-      const args = { status: status || undefined, limit: 100 };
+      const args = {
+        status: status || undefined,
+        search: debounced || undefined,
+        limit: 100,
+      };
       const data = tab === 'songs'
         ? await adminListSongs(args)
         : await adminListAlbums(args);
@@ -42,7 +70,7 @@ export default function ManageCatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [tab, status]);
+  }, [tab, status, debounced]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -63,6 +91,14 @@ export default function ManageCatalogPage() {
 
   const COLS = 4;
 
+  // The empty-state line should say WHY it's empty — status filter, search, or
+  // genuinely nothing. Otherwise a search with no hits reads like a broken page.
+  const emptyLabel = () => {
+    if (debounced) return `No ${tab} matching "${debounced}".`;
+    if (status) return `Nothing here with status "${status}".`;
+    return 'Nothing here.';
+  };
+
   return (
     <Box>
       <Typography variant="h4" sx={{ fontWeight: 800, mb: 0.5 }}>Manage Catalog</Typography>
@@ -76,12 +112,44 @@ export default function ManageCatalogPage() {
           <Tab value="songs" label="Songs" />
           <Tab value="albums" label="Albums" />
         </Tabs>
-        <TextField select size="small" label="Status" value={status}
-          onChange={(e) => setStatus(e.target.value)} sx={{ width: 180 }}>
-          {STATUS_OPTIONS.map((s) => (
-            <MenuItem key={s || 'all'} value={s}>{s === '' ? 'All statuses' : s}</MenuItem>
-          ))}
-        </TextField>
+
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}
+          sx={{ alignItems: { sm: 'center' } }}>
+          <TextField
+            size="small"
+            placeholder="Search by title…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            sx={{ width: { xs: '100%', sm: 240 } }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchRoundedIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+
+          <TextField select size="small" label="Status" value={status}
+            onChange={(e) => setStatus(e.target.value)} sx={{ width: 180 }}>
+            {STATUS_OPTIONS.map((s) => (
+              <MenuItem key={s || 'all'} value={s}>{s === '' ? 'All statuses' : s}</MenuItem>
+            ))}
+          </TextField>
+
+          {can(PERMISSIONS.MANAGE_CATALOG) && (
+            <Button
+              variant="outlined"
+              startIcon={<AddRoundedIcon />}
+              onClick={() => setGenreOpen(true)}
+              sx={{ whiteSpace: 'nowrap' }}
+            >
+              Add genre
+            </Button>
+          )}
+        </Stack>
       </Stack>
 
       {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
@@ -107,7 +175,7 @@ export default function ManageCatalogPage() {
               <TableRow>
                 <TableCell colSpan={COLS}>
                   <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
-                    Nothing here{status ? ` with status "${status}"` : ''}.
+                    {emptyLabel()}
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -163,6 +231,20 @@ export default function ManageCatalogPage() {
           </TableBody>
         </Table>
       </TableContainer>
+
+      <AddGenreDialog
+        open={genreOpen}
+        onClose={() => setGenreOpen(false)}
+        onCreated={(g) => setToast(`Genre "${g.name}" added`)}
+      />
+
+      <Snackbar
+        open={Boolean(toast)}
+        autoHideDuration={3000}
+        onClose={() => setToast('')}
+        message={toast}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Box>
   );
 }
