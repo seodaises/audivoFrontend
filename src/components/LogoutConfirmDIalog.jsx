@@ -14,7 +14,7 @@ export default function LogoutConfirmDialog({ open, onClose }) {
 
   const handleConfirm = async () => {
     setBusy(true);
-    await logout();          // clears token + user in AuthContext
+    await logout();          // clears the in memory user + stops playback
     navigate(LOGIN);         // send them to the login screen
     // no need to reset busy — the component unmounts on navigation
   };

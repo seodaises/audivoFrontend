@@ -98,7 +98,7 @@ export default function ManageRolesPage() {
               ) : rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={3} sx={{ borderBottom: 'none' }}>
-                    <Stack alignItems="center" spacing={1.5} sx={{ py: 6 }}>
+                    <Stack spacing={1.5} sx={{ alignItems: 'center', py: 6 }}>
                       <Typography variant="body1" sx={{ fontWeight: 600 }}>
                         No users to manage yet
                       </Typography>
@@ -249,7 +249,7 @@ function PermissionMatrix() {
 
   return (
     <Box sx={{ mb: 2 }}>
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 0.5 }}>
         <ShieldRoundedIcon sx={{ color: 'primary.main' }} />
         <Typography variant="h6" sx={{ fontWeight: 700 }}>Role permissions</Typography>
       </Stack>
@@ -319,7 +319,7 @@ function PermissionMatrix() {
 
       {/* Save row appears only when there are pending changes. */}
       {hasChanges && (
-        <Stack direction="row" justifyContent="flex-end" spacing={1.5} sx={{ mt: 2 }}>
+        <Stack direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end', mt: 2 }}>
           <Button color="inherit" onClick={discard} disabled={saving}>
             Discard
           </Button>

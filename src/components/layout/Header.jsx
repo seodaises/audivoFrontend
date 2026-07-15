@@ -39,7 +39,7 @@ export default function Header() {
           </Tooltip>
         )}
 
-        <Stack direction="row" alignItems="center" spacing={1}>
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <MusicNoteRoundedIcon color="primary" />
           <Typography variant="h6" sx={{ fontWeight: 800 }}>Audivo</Typography>
         </Stack>

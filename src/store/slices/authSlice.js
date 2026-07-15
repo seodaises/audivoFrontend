@@ -1,6 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { api } from '../../api/client';
 import { ROLES } from '../../auth/permissions';
+import { reset as resetPlayer } from './playerSlice';
 
 // NOTE: There is no token handling in this slice anymore. The JWT lives in an
 // httpOnly cookie set by the backend — invisible to JavaScript. The browser
@@ -93,13 +94,16 @@ export const resendVerification = createAsyncThunk(
 
 export const logout = createAsyncThunk(
   'auth/logout',
-  async () => {
+  async (_, { dispatch }) => {
     try {
       // Backend clears the cookie. We clear the in-memory user regardless.
       await api('/auth/logout', { method: 'POST' });
     } catch {
       // cleared regardless
     }
+    // Stop playback and tear down the player so audio doesn't keep going and
+    // the now-playing bar disappears when the session ends.
+    dispatch(resetPlayer());
     return true;
   }
 );
@@ -118,10 +122,12 @@ export const updateProfile = createAsyncThunk(
 
 export const deleteAccount = createAsyncThunk(
   'auth/deleteAccount',
-  async (password, { rejectWithValue }) => {
+  async (password, { dispatch, rejectWithValue }) => {
     try {
       // Backend deletes the account AND clears the cookie.
       await api('/auth/me', { method: 'DELETE', body: { password } });
+      // Same teardown as logout — the session is over.
+      dispatch(resetPlayer());
       return true;
     } catch (err) {
       return rejectWithValue(err.message);
@@ -238,4 +244,3 @@ const authSlice = createSlice({
 
 export const { clearAuthError } = authSlice.actions;
 export default authSlice.reducer;
-

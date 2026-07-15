@@ -10,6 +10,7 @@ import { api } from '../api/client';
 import { useAuth } from '../store/hooks/useAuth';
 import SetUserStatusDialog from '../components/SetUserStatusDialog';
 import DeleteUserDialog from '../components/DeleteUserDialog';
+import { fmtRelative } from '../utils/format';
 
 // Role name -> level, so the UI can apply the same strict-higher (>) rule the
 // backend enforces: you only get actionable controls for users below you.
@@ -130,7 +131,7 @@ export default function ManageUsersPage() {
 
   const closeDelete = () => setDeleteRow(null);
 
-  const COLS = 7;
+  const COLS = 9;
 
   return (
     <Box>
@@ -183,6 +184,12 @@ export default function ManageUsersPage() {
                 <TableCell>Phone</TableCell>
                 <TableCell>Role</TableCell>
                 <TableCell>Status</TableCell>
+                {/* "Is this account real, and is it being used?" — two questions an
+                    admin asks constantly and previously could not answer from this
+                    page at all. Both columns already existed on `users`; they were
+                    simply never serialized. */}
+                <TableCell>Verified</TableCell>
+                <TableCell>Last login</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -224,7 +231,7 @@ export default function ManageUsersPage() {
                   return (
                     <TableRow key={u.id} hover>
                       <TableCell>
-                        <Stack direction="row" spacing={1.5} alignItems="center">
+                        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
                           <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.main', fontSize: 14 }}>
                             {(u.displayName || u.username || '?').charAt(0).toUpperCase()}
                           </Avatar>
@@ -261,6 +268,26 @@ export default function ManageUsersPage() {
                           variant={u.isActive ? 'filled' : 'outlined'}
                         />
                       </TableCell>
+                      <TableCell>
+                      <Chip
+                        size="small"
+                        label={u.emailVerifiedAt ? 'Verified' : 'Unverified'}
+                        color={u.emailVerifiedAt ? 'success' : 'default'}
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {/* Relative, not absolute. "Is this user active?" is answered
+                          instantly by "2d ago" and not at all by "11 Jul 2026".
+                          fmtRelative returns "Never" for null — a user who has
+                          never logged in is a meaningful state, not a missing value. */}
+                      <Typography
+                        variant="body2"
+                        color={u.lastLoginAt ? 'text.secondary' : 'text.disabled'}
+                      >
+                        {fmtRelative(u.lastLoginAt)}
+                      </Typography>
+                    </TableCell>
                       <TableCell align="right">
                         <Tooltip
                           title={
