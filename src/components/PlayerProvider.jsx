@@ -2,24 +2,54 @@ import { useEffect, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { setProgress, setDuration, ended, clearSeek } from '../store/slices/playerSlice';
 import { songFileUrl } from '../api/catalog';
+import { recordPlay } from '../api/comments';
 
-// The single owner of the real <audio> element for the entire app. It renders
-// no visible UI — it just mounts one hidden <audio> and keeps it in sync with
-// the player slice:
-//   Redux -> audio:  load a new track's src, play/pause, seek.
-//   audio -> Redux:  report progress, duration, and end-of-track.
-// Because it sits above the router (in App), the element and its playback
-// survive route changes — that's what makes the now-playing bar persistent.
+// How long a track must actually play before it counts as a real listen.
+// Spotify's threshold is ~30s: below this it's a skip, not a play. We keep the
+// raw event out of the count entirely until the bar is crossed.
+const PLAY_THRESHOLD_SECS = 30;
+
+// Where "resume where you left off" remembers its position. A single localStorage
+// key holding { songId, seconds }. Deliberately NOT wired into redux-persist —
+// this codebase keeps auth and playback OUT of persistence on purpose; resume is
+// a narrow, self-contained bit of state that doesn't belong in the store at all.
+const RESUME_KEY = 'audivo.player.resume';
+
+const readResume = () => {
+  try {
+    const raw = localStorage.getItem(RESUME_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.songId !== 'undefined' && typeof parsed.seconds === 'number') {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const writeResume = (songId, seconds) => {
+  try {
+    localStorage.setItem(RESUME_KEY, JSON.stringify({ songId, seconds }));
+  } catch {
+    // Storage full or blocked (private mode). Resume is a nicety, not load-bearing.
+  }
+};
+
 export default function PlayerProvider({ children }) {
   const dispatch = useDispatch();
-  const { current, isPlaying, seekTo } = useSelector((s) => s.player);
+  const { current, isPlaying, seekTo, progress } = useSelector((s) => s.player);
   const audioRef = useRef(null);
 
-  // Load a new source ONLY when the track id changes. Watching `current.id`
-  // (not the whole object) avoids reloading the file on every play/pause.
-  // This one effect now also covers next/prev/auto-advance, since each of
-  // those changes current.id — the new track's file loads here, and the
-  // play/pause effect below starts it because isPlaying is true.
+  // Marks the song id we've already counted a play for, so recordPlay fires at
+  // most once per load even though the 30s effect runs on every timeupdate.
+  const reportedIdRef = useRef(null);
+
+  // Set true once we've applied a saved resume position for the current load, so
+  // we don't fight the user every time they seek.
+  const resumeAppliedRef = useRef(false);
+
   const loadedIdRef = useRef(null);
   useEffect(() => {
     const audio = audioRef.current;
@@ -31,13 +61,67 @@ export default function PlayerProvider({ children }) {
       audio.removeAttribute('src');
       audio.load();
       loadedIdRef.current = null;
+      // Clear the report marker too. If the same song is played again after a
+      // logout/reset, that is genuinely a NEW play and must be counted again.
+      reportedIdRef.current = null;
+      resumeAppliedRef.current = false;
       return;
     }
     if (loadedIdRef.current !== current.id) {
       audio.src = songFileUrl(current.id);
       loadedIdRef.current = current.id;
+      // A fresh track: neither counted nor resumed yet.
+      reportedIdRef.current = null;
+      resumeAppliedRef.current = false;
     }
   }, [current]);
+
+  // ── Resume where you left off ──────────────────────────────────────────────
+  // When THIS song matches the last-saved resume point, jump to that position
+  // once the file's metadata is known (so currentTime is settable). Applied a
+  // single time per load; after that the user's own seeking wins.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !current) return;
+    if (resumeAppliedRef.current) return;
+
+    const saved = readResume();
+    if (!saved || String(saved.songId) !== String(current.id)) {
+      resumeAppliedRef.current = true; // nothing to resume for this track
+      return;
+    }
+
+    const apply = () => {
+      // Guard against seeking past the end (e.g. saved near the finish).
+      const target = Math.min(saved.seconds, Math.max((audio.duration || 0) - 1, 0));
+      if (target > 0) audio.currentTime = target;
+      resumeAppliedRef.current = true;
+    };
+
+    if (audio.readyState >= 1 /* HAVE_METADATA */) apply();
+    else audio.addEventListener('loadedmetadata', apply, { once: true });
+
+    return () => audio.removeEventListener('loadedmetadata', apply);
+  }, [current]);
+
+  // ── The 30-second play rule ────────────────────────────────────────────────
+  // recordPlay used to fire the instant a track loaded, which counted a 1-second
+  // skip as a play. Now it fires only once playback has actually crossed the
+  // threshold — or reached the end of a track SHORTER than the threshold, which
+  // is still a complete listen.
+  useEffect(() => {
+    if (!current) return;
+    if (reportedIdRef.current === current.id) return;
+
+    const dur = audioRef.current?.duration || 0;
+    const shortTrack = dur > 0 && dur < PLAY_THRESHOLD_SECS;
+    const crossed = progress >= PLAY_THRESHOLD_SECS || (shortTrack && progress >= dur - 0.5);
+
+    if (crossed) {
+      reportedIdRef.current = current.id;
+      recordPlay(current.id, { source: current.source || 'browse' }).catch(() => {});
+    }
+  }, [current, progress]);
 
   // Play/pause the element to match isPlaying. play() returns a promise that
   // rejects if the browser blocks autoplay or the file 401s — swallow it so a
@@ -52,13 +136,20 @@ export default function PlayerProvider({ children }) {
     }
   }, [isPlaying, current]);
 
-  // Consume a seek request from the bar, then clear it.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || seekTo == null) return;
     audio.currentTime = seekTo;
+    if (isPlaying) audio.play().catch(() => {});
     dispatch(clearSeek());
-  }, [seekTo, dispatch]);
+  }, [seekTo, isPlaying, dispatch]);
+
+  // Persist the current position so a reload can resume it. Written from the
+  // store's progress (whole seconds) — cheap, and one key overwritten in place.
+  useEffect(() => {
+    if (!current || !isPlaying) return;
+    if (progress > 0) writeResume(current.id, progress);
+  }, [current, isPlaying, progress]);
 
   return (
     <>

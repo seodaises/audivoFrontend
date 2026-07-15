@@ -1,5 +1,11 @@
 import { createSlice } from '@reduxjs/toolkit';
 
+// Repeat cycles through these in order when you tap the button.
+//   off  — stop at the end of the queue (the original behaviour)
+//   all  — wrap: after the last track, go back to the first
+//   one  — replay the SAME track when it ends (but a manual "next" still skips)
+export const REPEAT_MODES = ['off', 'all', 'one'];
+
 const initialState = {
   // The playback queue: the list of tracks the player can walk with next/prev.
   // Browse (or any view) hands the player the list it's showing; the player
@@ -15,9 +21,48 @@ const initialState = {
   // A "seek request". The bar sets this; the provider watches it and seeks the
   // audio element, then clears it.
   seekTo: null,    // seconds to jump to, or null
+
+  // ── Repeat / shuffle ───────────────────────────────────────────────────────
+  repeat: 'off',   // one of REPEAT_MODES
+  shuffle: false,
+
+  // Shuffle keeps the queue UNTOUCHED and walks it through a permutation of its
+  // indices instead. That way turning shuffle off restores the real order for
+  // free — the queue was never scrambled, only the path through it was. `order`
+  // is the list of queue indices in play order; `orderPos` is where we are in it.
+  order: [],       // e.g. [3, 0, 2, 1] — queue indices in shuffled play order
+  orderPos: -1,    // position within `order`, or -1
 };
 
-// Given a queue and an index, produce the derived "now playing" fields.
+// Fisher–Yates over [0..n-1], but with `firstIndex` pinned to the front so that
+// turning shuffle on doesn't yank you off the track you're already playing.
+const shuffledIndices = (n, firstIndex) => {
+  const arr = Array.from({ length: n }, (_, i) => i);
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  if (firstIndex != null && firstIndex >= 0) {
+    const at = arr.indexOf(firstIndex);
+    if (at > 0) [arr[0], arr[at]] = [arr[at], arr[0]];
+  }
+  return arr;
+};
+
+// Rebuild `order`/`orderPos` from the current queue, shuffle flag, and the index
+// we want to be sitting on. Centralised so every entry point agrees on it.
+const rebuildOrder = (state, currentIndex) => {
+  if (state.shuffle) {
+    state.order = shuffledIndices(state.queue.length, currentIndex);
+    state.orderPos = state.order.indexOf(currentIndex);
+  } else {
+    // Identity order: play position == queue position.
+    state.order = state.queue.map((_, i) => i);
+    state.orderPos = currentIndex;
+  }
+};
+
+// Given a queue index, load it as `current` and sync orderPos to match.
 const loadAt = (state, queue, index) => {
   state.queue = queue;
   state.index = index;
@@ -25,6 +70,42 @@ const loadAt = (state, queue, index) => {
   state.isPlaying = Boolean(state.current);
   state.progress = 0;
   state.duration = 0;
+  state.orderPos = state.order.indexOf(index);
+};
+
+// The shared advance step used by BOTH next() and ended(). `auto` is true only
+// when a track ended on its own — that's the one case where repeat-one replays
+// rather than moving on. Mutates state.
+const advance = (state, { auto }) => {
+  if (state.index < 0) return;
+
+  // repeat-one: an auto-ended track replays itself. A MANUAL next ignores this
+  // and skips forward — you asked to move, so you move.
+  if (auto && state.repeat === 'one') {
+    state.progress = 0;
+    state.seekTo = 0;
+    state.isPlaying = true;
+    return;
+  }
+
+  const atEnd = state.orderPos >= state.order.length - 1;
+
+  if (atEnd) {
+    if (state.repeat === 'all') {
+      // Wrap to the front of the (possibly shuffled) order.
+      const firstQueueIndex = state.order[0];
+      loadAt(state, state.queue, firstQueueIndex);
+      state.isPlaying = true;
+    } else {
+      // off: stop, but keep the track loaded so the bar still shows it.
+      state.isPlaying = false;
+      state.progress = 0;
+    }
+    return;
+  }
+
+  const nextQueueIndex = state.order[state.orderPos + 1];
+  loadAt(state, state.queue, nextQueueIndex);
 };
 
 const playerSlice = createSlice({
@@ -41,6 +122,7 @@ const playerSlice = createSlice({
       state.isPlaying = true;
       state.progress = 0;
       state.duration = 0;
+      rebuildOrder(state, 0);
     },
 
     // Play from a LIST: the view hands over its visible tracks plus the index
@@ -49,17 +131,15 @@ const playerSlice = createSlice({
     playFromQueue(state, action) {
       const { queue, index } = action.payload;
       if (!Array.isArray(queue) || index < 0 || index >= queue.length) return;
+      state.queue = queue;
+      // Build the play order BEFORE loadAt, so loadAt can find its orderPos.
+      rebuildOrder(state, index);
       loadAt(state, queue, index);
     },
 
-    // Advance to the next track in the queue, if there is one. Wrapping is
-    // deliberately OFF — at the end of the queue we simply stop.
+    // Advance to the next track. Manual: repeat-one does NOT replay here.
     next(state) {
-      if (state.index < 0 || state.index >= state.queue.length - 1) {
-        state.isPlaying = false;
-        return;
-      }
-      loadAt(state, state.queue, state.index + 1);
+      advance(state, { auto: false });
     },
 
     // Go to the previous track. If we're more than 3 seconds into the current
@@ -70,18 +150,34 @@ const playerSlice = createSlice({
         state.seekTo = 0;
         return;
       }
-      if (state.index <= 0) {
-        // At the first track: restart it rather than doing nothing.
+      if (state.orderPos <= 0) {
+        // At the first track in play order: restart it rather than doing nothing.
+        // (Under repeat-all you could argue for wrapping to the end; restart is
+        // the less surprising choice and matches most players.)
         state.progress = 0;
         state.seekTo = 0;
         return;
       }
-      loadAt(state, state.queue, state.index - 1);
+      const prevQueueIndex = state.order[state.orderPos - 1];
+      loadAt(state, state.queue, prevQueueIndex);
     },
 
     pause(state) { state.isPlaying = false; },
     resume(state) { if (state.current) state.isPlaying = true; },
     togglePlay(state) { if (state.current) state.isPlaying = !state.isPlaying; },
+
+    // Cycle repeat off -> all -> one -> off.
+    cycleRepeat(state) {
+      const i = REPEAT_MODES.indexOf(state.repeat);
+      state.repeat = REPEAT_MODES[(i + 1) % REPEAT_MODES.length];
+    },
+
+    // Toggle shuffle and rebuild the play order around the current track, so the
+    // track you're on stays put and everything else reshuffles (or unshuffles).
+    toggleShuffle(state) {
+      state.shuffle = !state.shuffle;
+      rebuildOrder(state, state.index < 0 ? 0 : state.index);
+    },
 
     // Provider reports playback position/length back into the store.
     setProgress(state, action) { state.progress = action.payload; },
@@ -91,15 +187,9 @@ const playerSlice = createSlice({
     requestSeek(state, action) { state.seekTo = action.payload; },
     clearSeek(state) { state.seekTo = null; },
 
-    // Track ended: auto-advance to the next track if the queue has one,
-    // otherwise stop but keep the track loaded so the bar still shows it.
+    // Track ended on its own: honour repeat-one/all via the shared advance step.
     ended(state) {
-      if (state.index >= 0 && state.index < state.queue.length - 1) {
-        loadAt(state, state.queue, state.index + 1);
-      } else {
-        state.isPlaying = false;
-        state.progress = 0;
-      }
+      advance(state, { auto: true });
     },
 
     // Full teardown — used on logout so audio stops and the bar disappears.
@@ -112,6 +202,7 @@ const playerSlice = createSlice({
 export const {
   playTrack, playFromQueue, next, prev,
   pause, resume, togglePlay,
+  cycleRepeat, toggleShuffle,
   setProgress, setDuration, requestSeek, clearSeek, ended, reset,
 } = playerSlice.actions;
 

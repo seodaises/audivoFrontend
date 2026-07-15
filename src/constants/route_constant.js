@@ -21,3 +21,7 @@ export const CONTACT_QUERIES = "/contact-queries";
 export const MANAGE_ARTISTS = "/manage-artists";
 export const MANAGE_CATALOG = "/manage-catalog";
 export const MY_ARTIST = "/my-artist";
+export const MY_CATALOG = "/my-catalog";  
+export const PLAYLISTS = "/playlists";
+export const PLAYLIST = "/playlist";   // detail is /playlist/:id
+export const DISCOVER = "/discover";   // public playlists from everyone

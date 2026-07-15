@@ -16,6 +16,9 @@ import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSetting
 import ShieldRoundedIcon from '@mui/icons-material/ShieldRounded';
 import VerifiedUserRoundedIcon from '@mui/icons-material/VerifiedUserRounded';
 import LibraryAddCheckRoundedIcon from '@mui/icons-material/LibraryAddCheckRounded';
+import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
+import QueueMusicRoundedIcon from '@mui/icons-material/QueueMusicRounded';
+import PublicRoundedIcon from '@mui/icons-material/PublicRounded';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/hooks/useAuth';
 import { useSidebar } from '../../store/hooks/useSidebar';
@@ -24,7 +27,7 @@ import ProfileMenu from '../ProfileMenu';
 import {
   DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS,
   ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES,
-  MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST,
+  MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER
 } from '../../constants/route_constant';
 
 // Two widths: full (labels) and rail (icons only). The rail is what "hidden"
@@ -36,6 +39,8 @@ const baseItems = [
   { label: 'Home', icon: <HomeRoundedIcon />, path: DASHBOARD },
   { label: 'Browse', icon: <SearchRoundedIcon />, path: BROWSE },
   { label: 'Library', icon: <LibraryMusicRoundedIcon />, path: LIBRARY },
+  { label: 'Playlists', icon: <QueueMusicRoundedIcon />, path: PLAYLISTS },
+  { label: 'Discover', icon: <PublicRoundedIcon />, path: DISCOVER },
 ];
 
 // `hideForSuperAdmin` marks items a Super Admin shouldn't see even though their
@@ -43,7 +48,8 @@ const baseItems = [
 // facing tools; a Super Admin manages the catalog through Manage Catalog, not
 // these per-song pages.
 const gatedItems = [
-  { label: 'Upload Songs',  icon: <CloudUploadRoundedIcon />,        path: UPLOAD,         permission: PERMISSIONS.UPLOAD_SONGS,  hideForSuperAdmin: true },
+  { label: 'My Catalog',   icon: <Inventory2RoundedIcon />,        path: MY_CATALOG,     permission: PERMISSIONS.UPLOAD_SONGS },
+  { label: 'Upload Songs',  icon: <CloudUploadRoundedIcon />,        path: UPLOAD,         permission: PERMISSIONS.UPLOAD_SONGS },
   { label: 'Delete Songs',  icon: <DeleteRoundedIcon />,             path: SONGS,          permission: PERMISSIONS.DELETE_SONGS,  hideForSuperAdmin: true },
   { label: 'Feature Songs', icon: <StarRoundedIcon />,               path: FEATURE,        permission: PERMISSIONS.FEATURE_SONGS },
   { label: 'Manage Users',  icon: <PeopleRoundedIcon />,             path: USERS,          permission: PERMISSIONS.MANAGE_USERS },
@@ -53,7 +59,7 @@ const gatedItems = [
   { label: 'Analytics',     icon: <BarChartRoundedIcon />,           path: ANALYTICS,      permission: PERMISSIONS.VIEW_ANALYTICS },
   { label: 'Moderate',      icon: <ForumRoundedIcon />,              path: MODERATE,       permission: PERMISSIONS.MODERATE_COMMENTS },
   { label: 'Manage Roles',  icon: <AdminPanelSettingsRoundedIcon />, path: ROLES,          permission: PERMISSIONS.MANAGE_ROLES },
-  { label: 'My Artist Page', icon: <VerifiedUserRoundedIcon />, path: MY_ARTIST, permission: PERMISSIONS.UPLOAD_SONGS },
+  { label: 'My Artist Page', icon: <VerifiedUserRoundedIcon />,      path: MY_ARTIST,      permission: PERMISSIONS.UPLOAD_SONGS },
 ];
 
 const superAdminItems = [

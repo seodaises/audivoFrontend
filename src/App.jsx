@@ -22,13 +22,18 @@ import ArtistStudioPage from './pages/ArtistStudioPage';
 import PlayerProvider from './components/PlayerProvider';
 import NowPlayingBar from './components/NowPlayingBar';
 import LibraryPage from './pages/LibraryPage';
+import MyCatalogPage from './pages/MyCatalogPage';
 import AlbumPage from './pages/AlbumPage';
 import ArtistPage from './pages/ArtistPage';
 import ManageCatalogPage from './pages/ManageCatalogPage';
 import MyArtistProfilePage from './pages/MyArtistProfilePage';
 import RequirePermission from './components/RequirePermission';
+import PlaylistsPage from './pages/PlaylistsPage';
+import PlaylistPage from './pages/PlaylistPage';
+import DiscoverPage from './pages/DiscoverPage';
 import { PERMISSIONS } from './auth/permissions';
-import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES, MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST,} from './constants/route_constant';
+import AnalyticsPage from './pages/AnalyticsPage';
+import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES, MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER} from './constants/route_constant';
 
 const Placeholder = ({ title }) => <Typography variant="h4" sx={{ fontWeight: 800 }}>{title}</Typography>;
 
@@ -71,6 +76,9 @@ export default function App() {
             <Route path={DASHBOARD} element={<Dashboard />} />
             <Route path={BROWSE} element={<BrowsePage />} />
             <Route path={LIBRARY} element={<LibraryPage />} />
+            <Route path={PLAYLISTS} element={<PlaylistsPage />} />
+            <Route path={DISCOVER} element={<DiscoverPage />} />
+            <Route path="/playlist/:id" element={<PlaylistPage />} />
             <Route path="/album/:id" element={<AlbumPage />} />
             <Route path="/artist/:username" element={<ArtistPage />} />
 
@@ -86,6 +94,11 @@ export default function App() {
               <RequirePermission permission={PERMISSIONS.UPLOAD_SONGS}>
                 <MyArtistProfilePage />
               </RequirePermission>
+            } />
+            <Route path={MY_CATALOG} element={
+             <RequirePermission permission={PERMISSIONS.UPLOAD_SONGS}>
+              <MyCatalogPage />
+            </RequirePermission>
             } />
             <Route path={SONGS} element={
               <RequirePermission permission={PERMISSIONS.DELETE_SONGS}>
@@ -121,7 +134,7 @@ export default function App() {
             } />
             <Route path={ANALYTICS} element={
               <RequirePermission permission={PERMISSIONS.VIEW_ANALYTICS}>
-                <Placeholder title="Analytics" />
+                <AnalyticsPage />
               </RequirePermission>
             } />
             <Route path={MODERATE} element={

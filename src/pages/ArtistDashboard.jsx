@@ -13,16 +13,26 @@ import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import HourglassTopRoundedIcon from '@mui/icons-material/HourglassTopRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
+import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
+import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
+import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded';
 import { useAuth } from '../store/hooks/useAuth';
 import { fetchMyCatalog, setSongStatus } from '../api/catalog';
-import { UPLOAD, LIBRARY } from '../constants/route_constant';
+import { UPLOAD, MY_CATALOG } from '../constants/route_constant';
+import GenrePlaysChart from '../components/GenrePlaysChart';
 
 // Only the first few drafts show here — this is a nudge, not a second Library.
 const DRAFT_PREVIEW_LIMIT = 5;
 
-// Mirrors AdminDashboard's StatCard so both dashboards share one visual language.
-// `tone` tints the number for the one metric that's actually a TO-DO (drafts);
-// everything else stays neutral, because a count you can't act on shouldn't shout.
+// Compact large numbers: 1200 -> "1.2K", 3_000_000 -> "3M". Keeps a play count of
+// six figures from blowing out a stat tile's width.
+const fmtCount = (n) => {
+  if (n == null) return '0';
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K`;
+  return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+};
+
 function StatCard({ icon, label, value, tone }) {
   return (
     <Paper
@@ -43,10 +53,8 @@ function StatCard({ icon, label, value, tone }) {
         {icon}
       </Box>
       <Box sx={{ minWidth: 0 }}>
-        <Typography
-          variant="h5"
-          sx={{ fontWeight: 800, lineHeight: 1.1, color: tone ? `${tone}.main` : 'text.primary' }}
-        >
+        <Typography variant="h5"
+          sx={{ fontWeight: 800, lineHeight: 1.1, color: tone ? `${tone}.main` : 'text.primary' }}>
           {value}
         </Typography>
         <Typography variant="body2" color="text.secondary" noWrap>{label}</Typography>
@@ -55,27 +63,82 @@ function StatCard({ icon, label, value, tone }) {
   );
 }
 
+// Deliberately the SAME dimensions as AdminDashboard's ActionCard, not the wide
+// hero cards this page used to have. These are rail items now — a narrow column of
+// links, sized to be scanned. The old three-across layout was the reason the page
+// looked abandoned: three cards spanning the full width and then nothing beneath
+// them is a landing page, not a dashboard.
 function ActionCard({ icon, title, description, onClick }) {
   return (
     <Paper
       elevation={0}
       onClick={onClick}
       sx={{
-        flex: '1 1 240px', minWidth: 240, p: 2.5, borderRadius: 3, cursor: 'pointer',
+        p: 2, borderRadius: 3, cursor: 'pointer',
         border: '1px solid', borderColor: 'divider',
         transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
-        '&:hover': { transform: 'translateY(-4px)', boxShadow: 6, borderColor: 'primary.main' },
+        '&:hover': { transform: 'translateY(-2px)', boxShadow: 4, borderColor: 'primary.main' },
       }}
     >
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 0.75 }}>
         <Box sx={{ color: 'primary.main', display: 'flex' }}>{icon}</Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{title}</Typography>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, flexGrow: 1 }}>{title}</Typography>
       </Stack>
-      <Typography variant="body2" color="text.secondary">{description}</Typography>
-      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mt: 1.5, color: 'primary.main' }}>
-        <Typography variant="button">Open</Typography>
-        <ArrowForwardRoundedIcon fontSize="small" />
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+        {description}
+      </Typography>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mt: 1, color: 'primary.main' }}>
+        <Typography variant="button" sx={{ fontSize: 12 }}>Open</Typography>
+        <ArrowForwardRoundedIcon sx={{ fontSize: 14 }} />
       </Stack>
+    </Paper>
+  );
+}
+
+// A highlight card for one standout song — "most played" or "most liked". It's a
+// celebration tile, not a control: it names the metric, the song, and the number,
+// and stops there. When the catalog has no qualifying song (nobody's played or
+// liked anything yet), it shows an encouraging empty state instead of a blank.
+function TopSongCard({ icon, label, song, metricValue, metricNoun, accent = 'primary' }) {
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        flex: '1 1 260px', minWidth: 240, p: 2.5, borderRadius: 3,
+        border: '1px solid', borderColor: 'divider',
+        display: 'flex', flexDirection: 'column', gap: 1.5,
+      }}
+    >
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: `${accent}.main` }}>
+        {icon}
+        <Typography variant="overline" sx={{ fontWeight: 800, letterSpacing: 0.5 }}>
+          {label}
+        </Typography>
+      </Stack>
+
+      {song ? (
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+          <Avatar variant="rounded" src={song.coverUrl || undefined}
+            sx={{ width: 56, height: 56, bgcolor: 'action.selected' }}>
+            <MusicNoteRoundedIcon />
+          </Avatar>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }} noWrap>
+              {song.title}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" noWrap>
+              {song.album?.title || 'Single'}
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: `${accent}.main`, mt: 0.25 }}>
+              {fmtCount(metricValue)} {metricNoun}
+            </Typography>
+          </Box>
+        </Stack>
+      ) : (
+        <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+          No {metricNoun} yet — once listeners engage, your top track shows up here.
+        </Typography>
+      )}
     </Paper>
   );
 }
@@ -127,7 +190,6 @@ export default function ArtistDashboard() {
   if (err) return <Alert severity="error">{err}</Alert>;
 
   // No artist profile yet. One clear action — don't render a dashboard of zeros.
-  // Mirrors the Library empty state so the two pages tell the same story.
   if (!data?.isArtist) {
     return (
       <Box sx={{ textAlign: 'center', py: 10 }}>
@@ -152,6 +214,40 @@ export default function ArtistDashboard() {
   const drafts = songs.filter((s) => s.status === 'draft');
   const archived = songs.filter((s) => s.status === 'archived').length;
 
+  // Catalog-wide play total. Every song carries its own playCount, so the total is
+  // just their sum — no separate endpoint. Archived plays count too: they're real
+  // listens that happened, not erased by a later archive.
+  const totalPlays = songs.reduce((sum, s) => sum + (s.playCount || 0), 0);
+
+  // Top performers. We pick the single most-played and most-liked song across the
+  // whole catalog. `reduce` with a null seed handles the empty-catalog case (no
+  // songs -> null -> the card renders its empty state instead of crashing on
+  // undefined). Ties resolve to whichever song reduce sees first; for a "your top
+  // song" nudge that's fine — it's a highlight, not a leaderboard.
+  const pickTop = (key) =>
+    songs.reduce((best, s) => {
+      const v = s[key] || 0;
+      if (v <= 0) return best;               // a zero-play/zero-like song is not a "top" anything
+      if (!best || v > (best[key] || 0)) return s;
+      return best;
+    }, null);
+
+  const mostPlayed = pickTop('playCount');
+  const mostLiked = pickTop('likeCount');
+
+  const genrePlays = (() => {
+    const acc = new Map();
+    for (const s of songs) {
+      if (s.status !== 'published') continue; // drafts have no plays; archived plays are history
+      for (const g of s.genres || []) {
+        const prev = acc.get(g.id) || { id: g.id, name: g.name, plays: 0 };
+        prev.plays += s.playCount || 0;
+        acc.set(g.id, prev);
+      }
+    }
+    return [...acc.values()].sort((a, b) => b.plays - a.plays);
+  })();
+
   const isVerified = profile?.isVerified;
   const name = user?.name || profile?.stageName || 'there';
 
@@ -173,9 +269,6 @@ export default function ArtistDashboard() {
         Welcome back, {name}. Here's where your catalog stands.
       </Typography>
 
-      {/* The most important thing on this page. Without it, an unverified artist
-          hits a publish error with no explanation of why or what to do next.
-          This turns a confusing failure into a designed, understandable state. */}
       {!isVerified && (
         <Paper
           elevation={0}
@@ -198,7 +291,10 @@ export default function ArtistDashboard() {
         </Paper>
       )}
 
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 4 }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+        {/* Total plays leads the row — it's the number an artist actually cares
+            about. fmtCount keeps a big total from stretching the tile. */}
+        <StatCard icon={<TrendingUpRoundedIcon />} label="Total plays" value={fmtCount(totalPlays)} />
         <StatCard icon={<MusicNoteRoundedIcon />} label="Published songs" value={published} />
         {/* Drafts is the only tile that's a to-do rather than a statistic — tint it. */}
         <StatCard icon={<EditNoteRoundedIcon />} label="Drafts" value={drafts.length}
@@ -207,89 +303,143 @@ export default function ArtistDashboard() {
         <StatCard icon={<AlbumRoundedIcon />} label="Albums" value={albums.length} />
       </Box>
 
-      {drafts.length > 0 && (
-        <>
-          <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>
-              Finish your drafts
-            </Typography>
-            {drafts.length > DRAFT_PREVIEW_LIMIT && (
-              <Button size="small" onClick={() => navigate(LIBRARY)}>
-                View all {drafts.length} in Library
-              </Button>
-            )}
-          </Stack>
-
-          <Paper elevation={0}
-            sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', mb: 4, overflow: 'hidden' }}>
-            <List disablePadding>
-              {drafts.slice(0, DRAFT_PREVIEW_LIMIT).map((s, i, arr) => (
-                <ListItem
-                  key={s.id}
-                  divider={i < arr.length - 1}
-                  secondaryAction={
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      disabled={busyId === s.id || !isVerified}
-                      onClick={() => publishSong(s)}
-                    >
-                      {busyId === s.id ? 'Publishing…' : 'Publish'}
-                    </Button>
-                  }
-                  sx={{ py: 1.25 }}
-                >
-                  <ListItemAvatar>
-                    <Avatar variant="rounded" src={s.coverUrl || undefined}
-                      sx={{ bgcolor: 'action.selected' }}>
-                      <MusicNoteRoundedIcon fontSize="small" />
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={s.title}
-                    secondary={
-                      s.album
-                        ? `${s.album.title}${s.trackNumber ? ` · track ${s.trackNumber}` : ''}`
-                        : 'Single'
-                    }
-                    slotProps={{ primary: { fontWeight: 600 } }}
-                    sx={{ pr: 10 }}
-                  />
-                </ListItem>
-              ))}
-            </List>
-          </Paper>
-        </>
-      )}
-
-      {drafts.length === 0 && songs.length > 0 && (
-        <Alert severity="success" variant="outlined" sx={{ mb: 4, borderRadius: 3 }}>
-          Everything's published — no drafts waiting on you.
-        </Alert>
-      )}
-
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>Quick actions</Typography>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-        <ActionCard
-          icon={<CloudUploadRoundedIcon />}
-          title="Upload a track"
-          description="Add a new song to an album or release a single."
-          onClick={() => navigate(UPLOAD)}
-        />
-        {user?.username && (
-          <ActionCard
-            icon={<VisibilityRoundedIcon />}
-            title="View your public page"
-            description="See exactly what listeners see when they find you."
-            onClick={() => navigate(`/artist/${user.username}`)}
+      {/* Two highlight cards: your best-performing song by each measure. Only shown
+          once there's a catalog to have a "top" song in — an artist staring at an
+          empty studio doesn't need two cards telling them they have no plays. */}
+      {songs.length > 0 && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 4 }}>
+          <TopSongCard
+            icon={<PlayArrowRoundedIcon />}
+            label="Most played"
+            song={mostPlayed}
+            metricValue={mostPlayed?.playCount || 0}
+            metricNoun="plays"
+            accent="primary"
           />
-        )}
-        <ActionCard
-          icon={<LibraryMusicRoundedIcon />}
-          title="Your library"
-          description="Manage every release — drafts, published, and archived."
-          onClick={() => navigate(LIBRARY)}
-        />
+          <TopSongCard
+            icon={<FavoriteRoundedIcon />}
+            label="Most liked"
+            song={mostLiked}
+            metricValue={mostLiked?.likeCount || 0}
+            metricNoun="likes"
+            accent="error"
+          />
+        </Box>
+      )}
+
+      {/* Two columns, mirroring AdminDashboard exactly: content left, action rail
+          right. The two dashboards are now the same PAGE with different data, which
+          is the point — a user who learns one has learned the other. */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 2fr) minmax(300px, 1fr)' },
+          gap: 3,
+          alignItems: 'start',
+        }}
+      >
+        {/* LEFT — the content. */}
+        <Stack spacing={3} sx={{ minWidth: 0 }}>
+          {drafts.length > 0 && (
+            <Box>
+              <Stack direction="row"
+                sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  Finish your drafts
+                </Typography>
+                {drafts.length > DRAFT_PREVIEW_LIMIT && (
+                  <Button size="small" onClick={() => navigate(MY_CATALOG)}>
+                    View all {drafts.length} in My Catalog
+                  </Button>
+                )}
+              </Stack>
+
+              <Paper elevation={0}
+                sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider', overflow: 'hidden' }}>
+                <List disablePadding>
+                  {drafts.slice(0, DRAFT_PREVIEW_LIMIT).map((s, i, arr) => (
+                    <ListItem
+                      key={s.id}
+                      divider={i < arr.length - 1}
+                      secondaryAction={
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={busyId === s.id || !isVerified}
+                          onClick={() => publishSong(s)}
+                        >
+                          {busyId === s.id ? 'Publishing…' : 'Publish'}
+                        </Button>
+                      }
+                      sx={{ py: 1.25 }}
+                    >
+                      <ListItemAvatar>
+                        <Avatar variant="rounded" src={s.coverUrl || undefined}
+                          sx={{ bgcolor: 'action.selected' }}>
+                          <MusicNoteRoundedIcon fontSize="small" />
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        primary={s.title}
+                        secondary={
+                          s.album
+                            ? `${s.album.title}${s.trackNumber ? ` · track ${s.trackNumber}` : ''}`
+                            : 'Single'
+                        }
+                        slotProps={{ primary: { fontWeight: 600 } }}
+                        sx={{ pr: 10 }}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </Paper>
+            </Box>
+          )}
+
+          {drafts.length === 0 && songs.length > 0 && (
+            <Alert severity="success" variant="outlined" sx={{ borderRadius: 3 }}>
+              Everything's published: no drafts waiting on you.
+            </Alert>
+          )}
+
+          <Box>
+            <Stack direction="row" spacing={1}
+              sx={{ alignItems: 'baseline', justifyContent: 'space-between', mb: 1.5 }}>
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                Where your plays come from
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Your published tracks
+              </Typography>
+            </Stack>
+            <GenrePlaysChart data={genrePlays} loading={false} />
+          </Box>
+        </Stack>
+
+        {/* RIGHT — the action rail. */}
+        <Stack spacing={2} sx={{ minWidth: 0 }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>Quick actions</Typography>
+          <ActionCard
+            icon={<CloudUploadRoundedIcon />}
+            title="Upload a track"
+            description="Add a new song to an album or release a single."
+            onClick={() => navigate(UPLOAD)}
+          />
+          {user?.username && (
+            <ActionCard
+              icon={<VisibilityRoundedIcon />}
+              title="View your public page"
+              description="See exactly what listeners see when they find you."
+              onClick={() => navigate(`/artist/${user.username}`)}
+            />
+          )}
+          <ActionCard
+            icon={<LibraryMusicRoundedIcon />}
+            title="Your Catalog"
+            description="Manage every release, drafts, published, and archived."
+            onClick={() => navigate(MY_CATALOG)}
+          />
+        </Stack>
       </Box>
     </Box>
   );

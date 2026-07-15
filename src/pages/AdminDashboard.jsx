@@ -1,103 +1,136 @@
 import { useState, useEffect } from 'react';
-import { Box, Typography, Paper, Stack, Chip, LinearProgress, Skeleton, Alert } from '@mui/material';
+import {
+  Box, Typography, Paper, Stack, Chip, LinearProgress, Skeleton, Alert,
+} from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/hooks/useAuth';
 import { api } from '../api/client';
-import { USERS, ROLES, ANALYTICS } from '../constants/route_constant';
+import { PERMISSIONS } from '../auth/permissions';
+import { MANAGE_ARTISTS, CONTACT_QUERIES, ANALYTICS } from '../constants/route_constant';
+import GenrePlaysChart from '../components/GenrePlaysChart';
 
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import BlockRoundedIcon from '@mui/icons-material/BlockRounded';
-import ManageAccountsRoundedIcon from '@mui/icons-material/ManageAccountsRounded';
-import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
-import BarChartRoundedIcon from '@mui/icons-material/BarChartRounded';
+import LibraryMusicRoundedIcon from '@mui/icons-material/LibraryMusicRounded';
+import AlbumRoundedIcon from '@mui/icons-material/AlbumRounded';
+import MicRoundedIcon from '@mui/icons-material/MicRounded';
+import PlayCircleRoundedIcon from '@mui/icons-material/PlayCircleRounded';
+import PendingActionsRoundedIcon from '@mui/icons-material/PendingActionsRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
+import VerifiedUserRoundedIcon from '@mui/icons-material/VerifiedUserRounded';
+import MailRoundedIcon from '@mui/icons-material/MailRounded';
 
-function StatCard({ icon, label, value }) {
+const nf = new Intl.NumberFormat();
+
+function StatCard({ icon, label, value, loading, accent }) {
   return (
     <Paper
       elevation={0}
       sx={{
-        flex: '1 1 200px', minWidth: 200, p: 2.5, borderRadius: 3,
-        border: '1px solid', borderColor: 'divider',
-        display: 'flex', alignItems: 'center', gap: 2,
+        p: 2, borderRadius: 3,
+        border: '1px solid',
+        borderColor: accent ? 'warning.main' : 'divider',
+        display: 'flex', alignItems: 'center', gap: 1.75,
       }}
     >
       <Box
         sx={{
-          width: 48, height: 48, borderRadius: 2, flexShrink: 0,
+          width: 42, height: 42, borderRadius: 2, flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          bgcolor: 'primary.main', color: 'primary.contrastText',
+          bgcolor: accent ? 'warning.main' : 'primary.main',
+          color: accent ? 'warning.contrastText' : 'primary.contrastText',
         }}
       >
         {icon}
       </Box>
       <Box sx={{ minWidth: 0 }}>
-        <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.1 }}>{value}</Typography>
-        <Typography variant="body2" color="text.secondary" noWrap>{label}</Typography>
+        <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.15 }}>
+          {loading ? <Skeleton width={40} /> : value}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+          {label}
+        </Typography>
       </Box>
     </Paper>
   );
 }
 
-// A clickable tile that routes somewhere in the admin area.
-function ActionCard({ icon, title, description, onClick }) {
+// A clickable tile that routes somewhere in the admin area. `count` turns it from
+// a link into a to-do: a number here means there is outstanding work behind it.
+function ActionCard({ icon, title, description, onClick, count }) {
+  const hasWork = Number(count) > 0;
   return (
     <Paper
       elevation={0}
       onClick={onClick}
       sx={{
-        flex: '1 1 240px', minWidth: 240, p: 2.5, borderRadius: 3, cursor: 'pointer',
-        border: '1px solid', borderColor: 'divider',
+        p: 2, borderRadius: 3, cursor: 'pointer',
+        border: '1px solid',
+        borderColor: hasWork ? 'warning.main' : 'divider',
         transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
-        '&:hover': { transform: 'translateY(-4px)', boxShadow: 6, borderColor: 'primary.main' },
+        '&:hover': { transform: 'translateY(-2px)', boxShadow: 4, borderColor: 'primary.main' },
       }}
     >
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 1 }}>
-        <Box sx={{ color: 'primary.main', display: 'flex' }}>{icon}</Box>
-        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{title}</Typography>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 0.75 }}>
+        <Box sx={{ color: hasWork ? 'warning.main' : 'primary.main', display: 'flex' }}>
+          {icon}
+        </Box>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, flexGrow: 1 }}>{title}</Typography>
+        {hasWork && (
+          <Chip size="small" color="warning" label={count} sx={{ fontWeight: 700, height: 20 }} />
+        )}
       </Stack>
-      <Typography variant="body2" color="text.secondary">{description}</Typography>
-      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mt: 1.5, color: 'primary.main' }}>
-        <Typography variant="button">Open</Typography>
-        <ArrowForwardRoundedIcon fontSize="small" />
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+        {description}
+      </Typography>
+      <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', mt: 1, color: 'primary.main' }}>
+        <Typography variant="button" sx={{ fontSize: 12 }}>Open</Typography>
+        <ArrowForwardRoundedIcon sx={{ fontSize: 14 }} />
       </Stack>
     </Paper>
   );
 }
 
-function RoleBreakdownRow({ role, active, inactive, total }) {
-  // Guard against divide-by-zero for a role with no users.
-  const activePct = total > 0 ? Math.round((active / total) * 100) : 0;
-
+// One labelled bar. Used for both the role breakdown and the catalog breakdown —
+// same visual language, so the two panels read as siblings rather than as two
+// unrelated widgets that happen to sit next to each other.
+function BreakdownRow({ label, value, total, caption, color = 'primary' }) {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
-    <Box sx={{ py: 1.25 }}>
-      <Stack
-        direction="row"
-        spacing={2}
-        sx={{ alignItems: 'baseline', justifyContent: 'space-between', mb: 0.75 }}
-      >
-        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{role}</Typography>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-        >
-          {active} active&nbsp;·&nbsp;{inactive} inactive&nbsp;·&nbsp;{total} total
+    <Box sx={{ py: 1.1 }}>
+      <Stack direction="row" spacing={2}
+        sx={{ alignItems: 'baseline', justifyContent: 'space-between', mb: 0.6 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{label}</Typography>
+        <Typography variant="caption" color="text.secondary"
+          sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {caption}
         </Typography>
       </Stack>
       <LinearProgress
         variant="determinate"
-        value={activePct}
-        aria-label={`${role}: ${activePct}% active`}
+        value={pct}
+        aria-label={`${label}: ${pct}%`}
         sx={{
-          height: 10, borderRadius: 5,
-          // The track (unfilled portion) represents inactive users.
+          height: 8, borderRadius: 5,
           bgcolor: 'action.hover',
-          '& .MuiLinearProgress-bar': { borderRadius: 5, bgcolor: 'primary.main' },
+          '& .MuiLinearProgress-bar': { borderRadius: 5, bgcolor: `${color}.main` },
         }}
       />
     </Box>
+  );
+}
+
+function PanelSkeleton({ rows = 4 }) {
+  return (
+    <Stack spacing={2}>
+      {Array.from({ length: rows }).map((_, i) => (
+        <Box key={i}>
+          <Skeleton width="30%" height={20} />
+          <Skeleton variant="rounded" height={8} sx={{ mt: 1, borderRadius: 5 }} />
+        </Box>
+      ))}
+    </Stack>
   );
 }
 
@@ -126,114 +159,194 @@ export default function AdminDashboard() {
     return () => { alive = false; };
   }, []);
 
-  // While loading, tiles show a small skeleton instead of a bare dash.
-  const tileValue = (n) =>
-    loading ? <Skeleton width={48} height={32} /> : (n ?? '—');
+  // Defensive defaults. If the backend hasn't been restarted with the catalog counts yet, `metrics.catalog` is undefined — this renders zeroes and dashes rather than throwing on `.totalSongs` of undefined. A stale backend should look wrong, not blank the page. Same reasoning for playsByGenre defaulting to [] — the chart's own empty state then handles it, rather than crashing on .filter of undefined.
+  const cat = metrics?.catalog ?? {};
+  const inbox = metrics?.inbox ?? {};
+  const pendingArtists = cat.pendingArtists ?? 0;
+  const newQueries = inbox.newQueries ?? 0;
+  const playsByGenre = cat.playsByGenre ?? [];
+
+  const val = (n) => (n == null ? '—' : nf.format(n));
+  const totalSongs = cat.totalSongs ?? 0;
+  const totalAlbums = cat.totalAlbums ?? 0;
 
   return (
     <Box>
-      {/* Header */}
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 0.5 }}>
-        <Typography variant="h4" sx={{ fontWeight: 800, letterSpacing: '-0.5px' }}>
-          Admin overview
-        </Typography>
-        <Chip label={user?.role || 'Admin'} color="primary" size="small" sx={{ fontWeight: 700 }} />
-      </Stack>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
+      <Typography variant="h4" sx={{ fontWeight: 800, letterSpacing: '-0.5px', mb: 0.5 }}>
+        Admin Overview
+      </Typography>
+      <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
         Welcome back, {name}. Here's the state of Audivo at a glance.
       </Typography>
 
       {err && <Alert severity="error" sx={{ mb: 3 }}>{err}</Alert>}
 
-      {/* Top-line metrics — Total / Active / Inactive */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 4 }}>
-        <StatCard
-          icon={<PeopleRoundedIcon />}
-          label="Total users"
-          value={tileValue(metrics?.totalUsers)}
-        />
-        <StatCard
-          icon={<CheckCircleRoundedIcon />}
-          label="Active users"
-          value={tileValue(metrics?.activeUsers)}
-        />
-        <StatCard
-          icon={<BlockRoundedIcon />}
-          label="Inactive users"
-          value={tileValue(metrics?.inactiveUsers)}
-        />
-      </Box>
-
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5 }}>Users by role</Typography>
-      <Paper
-        elevation={0}
-        sx={{ p: 2.5, borderRadius: 3, border: '1px solid', borderColor: 'divider', mb: 4 }}
+      {/* Top-line metrics. CSS grid with auto-fit rather than a flex wrap: at
+          1900px this lays out 8 across, at 1200px it reflows to 4, on a phone to
+          1 — without a single breakpoint written by hand. */}
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+          gap: 2, mb: 4,
+        }}
       >
-        {loading ? (
-          <Stack spacing={2}>
-            {[0, 1, 2, 3].map((i) => (
-              <Box key={i}>
-                <Skeleton width="30%" height={20} />
-                <Skeleton variant="rounded" height={10} sx={{ mt: 1, borderRadius: 5 }} />
-              </Box>
-            ))}
-          </Stack>
-        ) : metrics && metrics.byRole.length > 0 ? (
-          <Stack divider={<Box sx={{ borderBottom: '1px dashed', borderColor: 'divider' }} />}>
-            {metrics.byRole.map((r) => (
-              <RoleBreakdownRow
-                key={r.role}
-                role={r.role}
-                active={r.active}
-                inactive={r.inactive}
-                total={r.total}
-              />
-            ))}
-          </Stack>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            No user data to display yet.
-          </Typography>
-        )}
-      </Paper>
-
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>Quick actions</Typography>
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-        {can('manage_users') && (
-          <ActionCard
-            icon={<ManageAccountsRoundedIcon />}
-            title="Manage users"
-            description="View accounts, search users, and enable or disable access."
-            onClick={() => navigate(USERS)}
-          />
-        )}
-        {can('view_analytics') && (
-          <ActionCard
-            icon={<BarChartRoundedIcon />}
-            title="Analytics"
-            description="Track listens, growth, and engagement across Audivo."
-            onClick={() => navigate(ANALYTICS)}
-          />
-        )}
+        <StatCard icon={<PeopleRoundedIcon />} label="Total users"
+          value={val(metrics?.totalUsers)} loading={loading} />
+        <StatCard icon={<CheckCircleRoundedIcon />} label="Active users"
+          value={val(metrics?.activeUsers)} loading={loading} />
+        <StatCard icon={<BlockRoundedIcon />} label="Inactive users"
+          value={val(metrics?.inactiveUsers)} loading={loading} />
+        <StatCard icon={<LibraryMusicRoundedIcon />} label="Songs"
+          value={val(cat.totalSongs)} loading={loading} />
+        <StatCard icon={<AlbumRoundedIcon />} label="Albums"
+          value={val(cat.totalAlbums)} loading={loading} />
+        <StatCard icon={<MicRoundedIcon />} label="Artists"
+          value={val(cat.totalArtists)} loading={loading} />
+        <StatCard icon={<PlayCircleRoundedIcon />} label="Total plays"
+          value={val(cat.totalPlays)} loading={loading} />
+        {/* Accented only when it's non-zero — a pending queue is a to-do, an empty
+            one is just a number. Colour carries meaning or it carries nothing. */}
+        <StatCard icon={<PendingActionsRoundedIcon />} label="Pending verification"
+          value={val(cat.pendingArtists)} loading={loading}
+          accent={!loading && pendingArtists > 0} />
       </Box>
 
-      {can('manage_roles') && (
-        <Box sx={{ mt: 4 }}>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2 }}>
-            <AdminPanelSettingsRoundedIcon sx={{ color: 'primary.main' }} />
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>Super Admin</Typography>
-            <Chip label="Elevated" size="small" variant="outlined" color="primary" />
-          </Stack>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-            <ActionCard
-              icon={<AdminPanelSettingsRoundedIcon />}
-              title="Manage roles"
-              description="Assign roles and create new admin accounts."
-              onClick={() => navigate(ROLES)}
-            />
+      <Box
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 2fr) minmax(300px, 1fr)' },
+          gap: 3,
+          alignItems: 'start',
+        }}
+      >
+        {/* LEFT — the data */}
+        <Stack spacing={3} sx={{ minWidth: 0 }}>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5 }}>Users by role</Typography>
+            <Paper elevation={0}
+              sx={{ p: 2.5, borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
+              {loading ? (
+                <PanelSkeleton rows={4} />
+              ) : metrics && metrics.byRole.length > 0 ? (
+                <Stack divider={<Box sx={{ borderBottom: '1px dashed', borderColor: 'divider' }} />}>
+                  {metrics.byRole.map((r) => (
+                    <BreakdownRow
+                      key={r.role}
+                      label={r.role}
+                      value={r.active}
+                      total={r.total}
+                      caption={`${r.active} active · ${r.inactive} inactive · ${r.total} total`}
+                    />
+                  ))}
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No user data to display yet.
+                </Typography>
+              )}
+            </Paper>
           </Box>
-        </Box>
-      )}
+
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5 }}>Catalog record</Typography>
+            <Paper elevation={0}
+              sx={{ p: 2.5, borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
+              {loading ? (
+                <PanelSkeleton rows={5} />
+              ) : totalSongs > 0 || totalAlbums > 0 ? (
+                <Stack divider={<Box sx={{ borderBottom: '1px dashed', borderColor: 'divider' }} />}>
+                  {/* SONGS and ALBUMS are counted separately and must be REPORTED
+                      separately. They were previously collapsed into one "Published"
+                      row measured against totalSongs — which quietly answered a
+                      question nobody asked. "8 of 12 published" is meaningless if you
+                      can't tell whether that's 8 tracks or 8 records; a 12-track album
+                      and 12 singles are the same number and completely different
+                      catalogs. Two rows, two denominators, no ambiguity. */}
+                  <BreakdownRow
+                    label="Published songs" color="success"
+                    value={cat.publishedSongs ?? 0} total={totalSongs}
+                    caption={`${cat.publishedSongs ?? 0} of ${totalSongs} songs live`}
+                  />
+                  <BreakdownRow
+                    label="Published albums" color="success"
+                    value={cat.publishedAlbums ?? 0} total={totalAlbums}
+                    caption={`${cat.publishedAlbums ?? 0} of ${totalAlbums} albums live`}
+                  />
+                  <BreakdownRow
+                    label="Archived songs" color="primary"
+                    value={cat.archivedSongs ?? 0} total={totalSongs}
+                    caption={`${cat.archivedSongs ?? 0} pulled from Browse`}
+                  />
+                  <BreakdownRow
+                    label="Archived albums" color="primary"
+                    value={cat.archivedAlbums ?? 0} total={totalAlbums}
+                    caption={`${cat.archivedAlbums ?? 0} pulled from Browse`}
+                  />
+                  <BreakdownRow
+                    label="Verified artists" color="success"
+                    value={cat.verifiedArtists ?? 0} total={cat.totalArtists ?? 0}
+                    caption={`${cat.verifiedArtists ?? 0} of ${cat.totalArtists ?? 0} verified`}
+                  />
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No songs in the catalog yet.
+                </Typography>
+              )}
+            </Paper>
+          </Box>
+        </Stack>
+
+        {/* RIGHT — the action rail, and now the chart. */}
+        <Stack spacing={2} sx={{ minWidth: 0 }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>Quick actions</Typography>
+
+          {can(PERMISSIONS.MANAGE_CATALOG) && (
+            <ActionCard
+              icon={<VerifiedUserRoundedIcon />}
+              title="Manage artists"
+              description="Review and verify pending artist profiles."
+              onClick={() => navigate(MANAGE_ARTISTS)}
+              count={pendingArtists}
+            />
+          )}
+          {can(PERMISSIONS.MANAGE_USERS) && (
+            <ActionCard
+              icon={<MailRoundedIcon />}
+              title="Contact queries"
+              description="Unresolved messages from the contact form."
+              onClick={() => navigate(CONTACT_QUERIES)}
+              count={newQueries}
+            />
+          )}
+
+          {/* The chart sits at the bottom of the rail — the empty space you marked.
+              
+              Gated on VIEW_ANALYTICS, not just "is admin". The /admin/metrics
+              endpoint is already gated on that permission, so an admin WITHOUT it
+              gets a 403 and this whole page shows an error — but the gate belongs
+              here regardless, because permission checks live at the point of use.
+              Relying on "well, the request would fail anyway" is defence by side
+              effect, and side effects change. */}
+          {can(PERMISSIONS.VIEW_ANALYTICS) && (
+            <Box sx={{ pt: 1 }}>
+              <Stack direction="row" spacing={1}
+                sx={{ alignItems: 'baseline', justifyContent: 'space-between', mb: 1.5 }}>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>Plays by genre</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Published tracks
+                </Typography>
+              </Stack>
+              <GenrePlaysChart
+                data={playsByGenre}
+                loading={loading}
+                onClick={() => navigate(ANALYTICS)}
+              />
+            </Box>
+          )}
+        </Stack>
+      </Box>
     </Box>
   );
 }

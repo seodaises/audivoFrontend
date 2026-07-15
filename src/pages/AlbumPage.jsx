@@ -17,6 +17,10 @@ import UnarchiveRoundedIcon from '@mui/icons-material/UnarchiveRounded';
 import PublishRoundedIcon from '@mui/icons-material/PublishRounded';
 import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRenameOutlineRounded';
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
+import PlaylistAddRoundedIcon from '@mui/icons-material/PlaylistAddRounded';
+import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
+import AddToPlaylistDialog from '../components/AddToPlaylistDialog';
+import CommentSection from '../components/CommentSection';
 import { useSelector, useDispatch } from 'react-redux';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
 import {
@@ -57,6 +61,16 @@ export default function AlbumPage() {
   const [addSongOpen, setAddSongOpen] = useState(false);
   const [editSong, setEditSong] = useState(null);
   const [hoverId, setHoverId] = useState(null);   // which track row is hovered (toggle reveal)
+
+  // The song whose "add to playlist" dialog is open, or null. ONE dialog for the
+  // whole page, driven by which song is in state — not one dialog per row. Forty
+  // tracks would otherwise mean forty mounted dialogs, each fetching playlists.
+  const [playlistSong, setPlaylistSong] = useState(null);
+
+  // The song whose comment thread is open, or null. Same one-dialog-per-page
+  // idiom as playlistSong above — one <CommentSection>, driven by which song is
+  // selected, not one mounted per row.
+  const [commentSong, setCommentSong] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -212,15 +226,26 @@ export default function AlbumPage() {
               </Typography>
             )}
 
+            {/* Owner-only album controls. These open EditAlbumDialog / AddSongDialog,
+                which were previously defined but unreachable — nothing rendered a
+                button that called setEditAlbumOpen or setAddSongOpen. */}
             {owner && (
-              <Stack direction="row" spacing={1.5} sx={{ mt: 2 }}>
-                <Button variant="contained" size="small" startIcon={<AddRoundedIcon />}
-                  onClick={() => setAddSongOpen(true)}>
-                  Add song
-                </Button>
-                <Button variant="outlined" size="small" startIcon={<EditRoundedIcon />}
-                  onClick={() => setEditAlbumOpen(true)}>
+              <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<EditRoundedIcon />}
+                  onClick={() => setEditAlbumOpen(true)}
+                >
                   Edit album
+                </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  startIcon={<AddRoundedIcon />}
+                  onClick={() => setAddSongOpen(true)}
+                >
+                  Add song
                 </Button>
               </Stack>
             )}
@@ -252,24 +277,60 @@ export default function AlbumPage() {
                   secondary={`${s.trackNumber != null ? `Track ${s.trackNumber} · ` : ''}${fmtDuration(s.durationSeconds)}`}
                   slotProps={{ primary: { fontWeight: 600 } }}
                 />
-                {owner && (
-                  <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-                    <Chip size="small" label={s.status} color={statusColor(s.status)}
-                      variant="outlined" sx={{ textTransform: 'capitalize' }} />
-                    <Tooltip title="Rename">
-                      <IconButton size="small" aria-label="Rename"
-                        onClick={(e) => { e.stopPropagation(); setEditSong(s); }}
+
+                <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+                  {/* Add-to-playlist is for EVERY listener, not just the album's
+                      owner — which is why it sits OUTSIDE the `owner &&` guard
+                      below. Anything inside that guard is an artist tool. */}
+                  <Tooltip title="Add to playlist">
+                    <IconButton size="small" aria-label="Add to playlist"
+                      onClick={(e) => { e.stopPropagation(); setPlaylistSong(s); }}
+                      sx={{
+                        opacity: hoverId === s.id ? 1 : 0,
+                        pointerEvents: hoverId === s.id ? 'auto' : 'none',
+                        transition: 'opacity .18s ease',
+                      }}>
+                      <PlaylistAddRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+
+                  {/* Comments open only for PUBLISHED songs: the backend's
+                      listForSong 403s on draft/archived tracks, so showing the
+                      button there would hand the user a dialog that errors. Also
+                      outside the `owner` guard — commenting is every listener's. */}
+                  {s.status === 'published' && (
+                    <Tooltip title="Comments">
+                      <IconButton size="small" aria-label="Comments"
+                        onClick={(e) => { e.stopPropagation(); setCommentSong(s); }}
                         sx={{
                           opacity: hoverId === s.id ? 1 : 0,
                           pointerEvents: hoverId === s.id ? 'auto' : 'none',
                           transition: 'opacity .18s ease',
                         }}>
-                        <DriveFileRenameOutlineRoundedIcon fontSize="small" />
+                        <ChatBubbleOutlineRoundedIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    {songToggle(s, hoverId === s.id)}
-                  </Stack>
-                )}
+                  )}
+
+                  {owner && (
+                    <>
+                      <Chip size="small" label={s.status} color={statusColor(s.status)}
+                        variant="outlined" sx={{ textTransform: 'capitalize' }} />
+                      <Tooltip title="Rename">
+                        <IconButton size="small" aria-label="Rename"
+                          onClick={(e) => { e.stopPropagation(); setEditSong(s); }}
+                          sx={{
+                            opacity: hoverId === s.id ? 1 : 0,
+                            pointerEvents: hoverId === s.id ? 'auto' : 'none',
+                            transition: 'opacity .18s ease',
+                          }}>
+                          <DriveFileRenameOutlineRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      {songToggle(s, hoverId === s.id)}
+                    </>
+                  )}
+                </Stack>
               </ListItemButton>
             );
           })}
@@ -301,6 +362,32 @@ export default function AlbumPage() {
           onError={setErr}
         />
       )}
+
+      {/* Lives HERE, in AlbumPage — not inside EditAlbumDialog. `playlistSong` is
+          AlbumPage state; a child component cannot see it. */}
+      <AddToPlaylistDialog
+        open={Boolean(playlistSong)}
+        onClose={() => setPlaylistSong(null)}
+        songId={playlistSong?.id}
+        songTitle={playlistSong?.title}
+      />
+
+      {/* Comment thread dialog. Mounted only while a song is selected so the
+          CommentSection fetches once, on open — not one per row on page load. */}
+      <Dialog
+        open={Boolean(commentSong)}
+        onClose={() => setCommentSong(null)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle sx={{ pb: 1 }}>{commentSong?.title}</DialogTitle>
+        <DialogContent dividers>
+          {commentSong && <CommentSection songId={commentSong.id} />}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCommentSong(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

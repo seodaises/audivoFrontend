@@ -127,6 +127,20 @@ export function setSongStatus(songId, status) {
   }).then((res) => res.data);
 }
 
+// DELETE /songs/:id — HARD delete. Owner-gated on the backend. This removes the
+// row, its genre links, and the audio file from disk. There is no undo — `archived`
+// is the reversible option, and the UI must make that distinction obvious before
+// calling this.
+export function deleteSong(songId, password) {
+  return api(`/songs/${songId}`, { method: 'DELETE', body: { password } }).then((res) => res.data);
+}
+
+// DELETE /albums/:id — HARD delete, PASSWORD-GATED, CASCADING to every song in the
+// album (rows, genre links, audio files). Returns { id, deleted, songsDeleted }.
+export function deleteAlbum(albumId, password) {
+  return api(`/albums/${albumId}`, { method: 'DELETE', body: { password } }).then((res) => res.data);
+}
+
 // PATCH /albums/:id { coverUrl?, title?, releaseDate? } — edit album fields.
 // Used by the studio to attach a cover URL after (or instead of) creation.
 export function updateAlbum(albumId, patch) {
@@ -197,6 +211,17 @@ export function adminSetAlbumStatus(albumId, status) {
     body: { status },
   }).then((res) => res.data);
 }
+
+// DELETE /admin/catalog/songs/:id — admin hard delete, any owner (bypasses ownership).
+export function adminDeleteSong(songId) {
+  return api(`/admin/catalog/songs/${songId}`, { method: 'DELETE' }).then((res) => res.data);
+}
+
+// DELETE /admin/catalog/albums/:id — admin hard delete, cascades to the album's songs.
+export function adminDeleteAlbum(albumId) {
+  return api(`/admin/catalog/albums/${albumId}`, { method: 'DELETE' }).then((res) => res.data);
+}
+
 // POST /songs — multipart upload. This CANNOT use api()/http, because those
 // set Content-Type: application/json. For a file we must let the browser set
 // Content-Type to multipart/form-data itself (with the boundary string), so we

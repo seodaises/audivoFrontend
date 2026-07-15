@@ -8,8 +8,9 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
-import MediaCard from '../components/MediaCard';
-import { fetchSongs, fetchAlbums, fetchGenres, searchCatalog } from '../api/catalog';
+import SongCard from '../components/SongCard';
+import AlbumCard from '../components/AlbumCard';
+import { fetchSongs, fetchAlbums, fetchGenres, searchCatalog, fetchAlbum } from '../api/catalog';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
 
 const fmtDuration = (secs) => {
@@ -92,6 +93,28 @@ export default function BrowsePage() {
       dispatch(togglePlay());
     } else {
       dispatch(playFromQueue({ queue: songs.map(toTrack), index: idx }));
+    }
+  };
+
+  // Play a whole album from its card: fetch the album's published tracks, load
+  // them as the queue, and start at the top. The card can't do this itself — it
+  // only knows the album's id, not its tracklist — so the page owns the fetch.
+  // Failures are swallowed to a soft error rather than crashing the grid.
+  const onAlbumPlay = async (album) => {
+    try {
+      const full = await fetchAlbum(album.id);
+      const queue = (full.songs || [])
+        .filter((s) => s.status === 'published')
+        .map((s) => ({
+          id: s.id,
+          title: s.title,
+          artist: full.artist ?? null,
+          coverUrl: full.coverUrl ?? null,
+        }));
+      if (queue.length === 0) return;   // nothing playable — do nothing quietly
+      dispatch(playFromQueue({ queue, index: 0 }));
+    } catch (e) {
+      setErr(e.message);
     }
   };
 
@@ -184,13 +207,15 @@ export default function BrowsePage() {
       ) : (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
           {albums.map((a) => (
-            <MediaCard
+            <AlbumCard
               key={a.id}
+              albumId={a.id}
               seed={a.id}
               imageUrl={a.coverUrl || undefined}
               title={a.title}
               subtitle={a.artist?.stageName ?? (a.isSingle ? 'Single' : 'Album')}
               onClick={() => navigate(`/album/${a.id}`)}
+              onPlayAlbum={() => onAlbumPlay(a)}
             />
           ))}
         </Box>
@@ -225,14 +250,14 @@ export default function BrowsePage() {
         ) : (
           songs.map((s, idx) => (
             <Box key={s.id} sx={{ width: 180 }}>
-              <MediaCard
+              <SongCard
+                songId={s.id}
                 seed={s.id}
                 imageUrl={s.coverUrl || undefined}
                 title={s.title}
                 subtitle={`${s.artist?.stageName ?? 'Unknown artist'}${
                   s.durationSeconds != null ? ` · ${fmtDuration(s.durationSeconds)}` : ''
                 }`}
-                playable
                 isPlaying={playingId === s.id}
                 onTogglePlay={() => onCardPlay(s, idx)}
               />

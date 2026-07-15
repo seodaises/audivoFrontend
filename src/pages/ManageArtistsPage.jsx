@@ -10,10 +10,9 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import { useNavigate } from 'react-router-dom';
 import { adminListArtists, verifyArtist } from '../api/catalog';
+import { fmtCount } from '../utils/format';
 
-// Admin page: the artist verification queue. Unverified artists can't publish
-// (createAlbum requires a verified profile), so this is where an admin approves
-// them. The `filter` toggle defaults to "Pending" — the actionable view.
+// Admin page: the artist verification queue. Unverified artists can't publish (createAlbum requires a verified profile), so this is where an admin approves them. The `filter` toggle defaults to "Pending" — the actionable view.
 export default function ManageArtistsPage() {
   const navigate = useNavigate();
 
@@ -144,6 +143,9 @@ export default function ManageArtistsPage() {
                 <TableCell>Artist</TableCell>
                 <TableCell>Username</TableCell>
                 <TableCell>Email</TableCell>
+                <TableCell align="right">Songs</TableCell>
+                <TableCell align="right">Albums</TableCell>
+                <TableCell align="right">Plays</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell align="right">Action</TableCell>
               </TableRow>
@@ -152,12 +154,12 @@ export default function ManageArtistsPage() {
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    <TableCell colSpan={5}><Skeleton height={32} /></TableCell>
+                    <TableCell colSpan={8}><Skeleton height={32} /></TableCell>
                   </TableRow>
                 ))
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={8}>
                     <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
                       {emptyLabel()}
                     </Typography>
@@ -190,6 +192,9 @@ export default function ManageArtistsPage() {
                         {a.user?.email ?? '—'}
                       </Typography>
                     </TableCell>
+                    <TableCell align="right">{fmtCount(a.songCount)}</TableCell>
+                    <TableCell align="right">{fmtCount(a.albumCount)}</TableCell>
+                    <TableCell align="right">{fmtCount(a.totalPlays)}</TableCell>
                     <TableCell>
                       <Chip
                         size="small"

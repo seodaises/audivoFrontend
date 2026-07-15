@@ -1,28 +1,23 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box, Typography, Stack, Alert, Skeleton, Avatar, Chip, Divider, Button,
-  List, ListItemButton, ListItemAvatar, ListItemText, IconButton, Tooltip, Link,
-  CircularProgress, TextField, InputAdornment, ToggleButton, ToggleButtonGroup,
-  alpha,
+  Box, Typography, Stack, Alert, Skeleton, Button, Divider,
+  Tabs, Tab, TextField, InputAdornment, Link, Avatar,
 } from '@mui/material';
-import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
-import PauseRoundedIcon from '@mui/icons-material/PauseRounded';
-import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
-import LibraryMusicRoundedIcon from '@mui/icons-material/LibraryMusicRounded';
-import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
-import UnarchiveRoundedIcon from '@mui/icons-material/UnarchiveRounded';
-import PublishRoundedIcon from '@mui/icons-material/PublishRounded';
-import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
-import QueueMusicRoundedIcon from '@mui/icons-material/QueueMusicRounded';
+import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
+import BookmarkRoundedIcon from '@mui/icons-material/BookmarkRounded';
+import LibraryMusicRoundedIcon from '@mui/icons-material/LibraryMusicRounded';
+import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import { useSelector, useDispatch } from 'react-redux';
-import MediaCard from '../components/MediaCard';
+import SongCard from '../components/SongCard';
+import AlbumCard from '../components/AlbumCard';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
-import { fetchMyCatalog, setSongStatus, setAlbumStatus } from '../api/catalog';
-import { UPLOAD, BROWSE } from '../constants/route_constant';
-import { useAuth } from '../store/hooks/useAuth';
-import { PERMISSIONS } from '../auth/permissions';
+import {
+  fetchLikedSongs, fetchSavedSongs, fetchSavedAlbums, fetchFollowedArtists,
+} from '../api/social';
+import { fetchAlbum } from '../api/catalog';
+import { BROWSE } from '../constants/route_constant';
 
 const fmtDuration = (secs) => {
   if (secs == null) return '—';
@@ -31,8 +26,6 @@ const fmtDuration = (secs) => {
   return `${m}:${s}`;
 };
 
-// pretty-print a YYYY-MM-DD release date. Returns null (not a dash) when absent
-// so callers can choose whether to render the row at all.
 const fmtDate = (iso) => {
   if (!iso) return null;
   const d = new Date(`${iso}T00:00:00`);
@@ -40,439 +33,357 @@ const fmtDate = (iso) => {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-const statusColor = (status) =>
-  status === 'published' ? 'success' : status === 'archived' ? 'default' : 'warning';
-
-// Case-insensitive substring match. Deliberately dumb — this filters an array
-// that's ALREADY in memory, so there's no query to optimize.
 const matches = (haystack, needle) =>
   String(haystack || '').toLowerCase().includes(needle);
+
+// Each tab declares its KIND, which drives three things: what it fetches, how it
+// searches, and which card it renders. The old page assumed every tab was a song
+// grid; now the tab config carries that assumption explicitly instead of baking
+// it into the render. That is the whole reason for the `kind` field — a mentor
+// reading this should see immediately that "Saved" and "Following" are not songs.
+//
+//   songs    -> one fetch, SongCard grid, playable queue
+//   mixed    -> two fetches (songs + albums) merged, SongCard + AlbumCard
+//   artists  -> one fetch, avatar tiles that navigate to the artist page
+const TABS = [
+  {
+    key: 'liked',
+    label: 'Liked',
+    kind: 'songs',
+    icon: <FavoriteRoundedIcon fontSize="small" />,
+    source: 'queue',
+    emptyTitle: 'Nothing liked yet',
+    emptyBody: 'Tap the heart on any track and it will show up here.',
+  },
+  {
+    key: 'saved',
+    label: 'Saved',
+    kind: 'mixed',
+    icon: <BookmarkRoundedIcon fontSize="small" />,
+    source: 'queue',
+    emptyTitle: 'Nothing saved yet',
+    emptyBody: 'Save a song or an album to file it away in your library.',
+  },
+  {
+    key: 'following',
+    label: 'Following',
+    kind: 'artists',
+    icon: <PeopleRoundedIcon fontSize="small" />,
+    emptyTitle: 'Not following anyone yet',
+    emptyBody: 'Follow an artist and they will appear here.',
+  },
+];
 
 export default function LibraryPage() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const { can } = useAuth();
 
   const playingId = useSelector((s) => (s.player.isPlaying ? s.player.current?.id : null));
   const loadedId = useSelector((s) => s.player.current?.id);
 
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);       // FIRST load only
-  const [refreshing, setRefreshing] = useState(false); // background refetch
-  const [err, setErr] = useState(null);
-  const [busyId, setBusyId] = useState(null);   // which row is mid-write
-  const [hoverId, setHoverId] = useState(null);  // which album card is hovered (toggle reveal)
-
-  // Search + status filter. Both are pure CLIENT-side: fetchMyCatalog() returns
-  // the whole catalog in one payload (no pagination), so everything we'd filter
-  // on is already in `data`. No endpoint change, no debounce — there's nothing
-  // being fetched, so it's instant on every keystroke.
+  const [tab, setTab] = useState(0);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState(''); // '' = all
 
-  // upload_songs is the Artist permission. Gate on the PERMISSION, not the role
-  // name — the permission list comes from the DB via /me, so a new role that
-  // grants uploading works here with zero frontend changes.
-  const canUpload = can(PERMISSIONS.UPLOAD_SONGS);
+  const [rowsByTab, setRowsByTab] = useState({});
+  const [loadingTab, setLoadingTab] = useState(null); // which tab.key is fetching
+  const [err, setErr] = useState(null);
 
-  // `silent` refetches WITHOUT tearing the page down to skeletons. The full
-  // skeleton is only correct on first mount, when there's nothing on screen yet.
-  // After a status write we already have data — blanking it and rebuilding is
-  // what caused the reload-flash.
-  const load = useCallback(async ({ silent = false } = {}) => {
-    if (silent) setRefreshing(true);
-    else setLoading(true);
+  const active = TABS[tab];
+  const rows = rowsByTab[active.key];
+  const loading = loadingTab === active.key;
+
+  // One loader for every tab. The `kind` decides the fetch strategy; the rows it
+  // stores are already normalised into a single array the render can walk. For
+  // the mixed tab, songs and albums are tagged with a `_type` so the render knows
+  // which card to draw — without that tag the two shapes are ambiguous (both have
+  // id/title/coverUrl).
+  const load = useCallback(async (tabDef, { force = false } = {}) => {
+    if (!force && rowsByTab[tabDef.key]) return;
+    setLoadingTab(tabDef.key);
     setErr(null);
     try {
-      setData(await fetchMyCatalog());
+      let items = [];
+      if (tabDef.kind === 'songs') {
+        const res = await fetchLikedSongs({ page: 1, limit: 100 });
+        items = (res.items || []).map((s) => ({ ...s, _type: 'song' }));
+      } else if (tabDef.kind === 'mixed') {
+        // Two independent lists. Fetch in parallel — neither depends on the other,
+        // so serialising them would just double the wait for no reason.
+        const [songsRes, albumsRes] = await Promise.all([
+          fetchSavedSongs({ page: 1, limit: 100 }),
+          fetchSavedAlbums({ page: 1, limit: 100 }),
+        ]);
+        const songs = (songsRes.items || []).map((s) => ({ ...s, _type: 'song' }));
+        const albums = (albumsRes.items || []).map((a) => ({ ...a, _type: 'album' }));
+        // Albums first, then songs — a small, predictable ordering so the grid
+        // does not reshuffle between loads. (The backend gives each list its own
+        // "newest saved first"; we are only deciding how the two lists sit next
+        // to each other, not re-sorting within them.)
+        items = [...albums, ...songs];
+      } else if (tabDef.kind === 'artists') {
+        const res = await fetchFollowedArtists({ page: 1, limit: 100 });
+        items = (res.items || []).map((a) => ({ ...a, _type: 'artist' }));
+      }
+      setRowsByTab((prev) => ({ ...prev, [tabDef.key]: items }));
     } catch (e) {
       setErr(e.message);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      setLoadingTab(null);
     }
-  }, []);
+  }, [rowsByTab]);
 
-  useEffect(() => { load(); }, [load]);   // first mount -> full skeleton
+  useEffect(() => { load(active); }, [active, load]);
 
   const needle = search.trim().toLowerCase();
 
-  // Filtered views. useMemo so we're not re-filtering on every unrelated render
-  // (hover state changes a lot). Albums match on title; songs match on title OR
-  // their album's title, so searching an album name surfaces its tracks too.
-  const albums = useMemo(() => {
-    const all = data?.albums || [];
-    return all.filter((a) =>
-      (!statusFilter || a.status === statusFilter) &&
-      (!needle || matches(a.title, needle))
-    );
-  }, [data, needle, statusFilter]);
+  // Search reads different fields per type: a song matches on title or artist, an
+  // album on title or artist, an artist on stage name. Folding these into one
+  // predicate keeps the search box working across a mixed grid.
+  const visible = useMemo(() => {
+    const all = rows || [];
+    if (!needle) return all;
+    return all.filter((it) => {
+      if (it._type === 'artist') return matches(it.stageName, needle);
+      return matches(it.title, needle) || matches(it.artist?.stageName, needle);
+    });
+  }, [rows, needle]);
 
-  const songs = useMemo(() => {
-    const all = data?.songs || [];
-    return all.filter((s) =>
-      (!statusFilter || s.status === statusFilter) &&
-      (!needle || matches(s.title, needle) || matches(s.album?.title, needle))
-    );
-  }, [data, needle, statusFilter]);
+  // Only the songs currently visible form the queue, and only real songs — an
+  // album tile in the mixed grid is not a queue entry, it plays via its own
+  // handler. So the index passed to playFromQueue must be the index WITHIN the
+  // songs, not within the mixed array.
+  const playableSongs = useMemo(
+    () => visible.filter((it) => it._type === 'song'),
+    [visible]
+  );
 
-  const isFiltered = Boolean(needle || statusFilter);
-
-  // The play queue is built from the VISIBLE songs, so skipping next/prev walks
-  // what the artist can actually see — not a hidden full catalog.
-  const tracks = songs.map((s) => ({
-    id: s.id, title: s.title,
-    artist: s.artist ?? null,
-    coverUrl: s.coverUrl ?? null,
-  }));
-
-  const onPlaySong = (idx) => {
-    const track = tracks[idx];
-    if (loadedId === track.id) dispatch(togglePlay());
-    else dispatch(playFromQueue({ queue: tracks, index: idx }));
-  };
-
-  // Owner status change on MY song. The backend route is owner-gated, so this
-  // only ever touches songs I own. We refetch rather than optimistically guess —
-  // album status CASCADES to songs on the backend, and replicating that cascade
-  // client-side would duplicate business logic that belongs in one place.
-  const changeSongStatus = async (song, next) => {
-    setBusyId(`song-${song.id}`);
-    try { await setSongStatus(song.id, next); await load({ silent: true }); }
-    catch (e) { setErr(e.message); }
-    finally { setBusyId(null); }
-  };
-
-  const changeAlbumStatus = async (album, next) => {
-    setBusyId(`album-${album.id}`);
-    try { await setAlbumStatus(album.id, next); await load({ silent: true }); }
-    catch (e) { setErr(e.message); }
-    finally { setBusyId(null); }
-  };
-
-  if (loading) {
-    return (
-      <Box sx={{ pb: 12 }}>
-        <Skeleton width="30%" height={40} sx={{ mb: 2 }} />
-        <Stack direction="row" spacing={2}>
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} variant="rounded" width={190} height={280} sx={{ borderRadius: 3 }} />
-          ))}
-        </Stack>
-      </Box>
-    );
-  }
-
-  if (err) {
-    return <Box sx={{ pb: 12 }}><Alert severity="error">{err}</Alert></Box>;
-  }
-
-  // Not an artist yet. Two audiences: someone who CAN upload (nudge to Studio),
-  // and everyone else (Listener/Moderator/Admin) — they have no upload_songs
-  // permission and the /upload route bounces them, so give them a real action.
-  if (!data?.isArtist) {
-    return (
-      <Box sx={{ pb: 12, textAlign: 'center', py: 8 }}>
-        <LibraryMusicRoundedIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-        <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
-          Your library is empty
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          {canUpload
-            ? 'Set up your artist profile and upload your first track to see it here.'
-            : 'This is where your own releases would appear. Head to Browse to explore the catalog.'}
-        </Typography>
-        {canUpload ? (
-          <Button variant="contained" startIcon={<CloudUploadRoundedIcon />}
-            onClick={() => navigate(UPLOAD)}>
-            Go to Artist Studio
-          </Button>
-        ) : (
-          <Button variant="contained" startIcon={<QueueMusicRoundedIcon />}
-            onClick={() => navigate(BROWSE)}>
-            Browse music
-          </Button>
-        )}
-      </Box>
-    );
-  }
-
-  // Per-song action buttons keyed off current status.
-  const songActions = (s) => {
-    const busy = busyId === `song-${s.id}`;
-    if (s.status === 'archived') {
-      return (
-        <Tooltip title="Restore to published">
-          <span>
-            <IconButton size="small" disabled={busy}
-              onClick={(e) => { e.stopPropagation(); changeSongStatus(s, 'published'); }}>
-              {busy ? <CircularProgress size={16} /> : <UnarchiveRoundedIcon fontSize="small" />}
-            </IconButton>
-          </span>
-        </Tooltip>
-      );
+  const onSongPlay = (song) => {
+    if (loadedId === song.id) {
+      dispatch(togglePlay());
+      return;
     }
-    return (
-      <>
-        {s.status === 'draft' && (
-          <Tooltip title="Publish">
-            <span>
-              <IconButton size="small" disabled={busy}
-                onClick={(e) => { e.stopPropagation(); changeSongStatus(s, 'published'); }}>
-                <PublishRoundedIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-        )}
-        <Tooltip title="Archive">
-          <span>
-            <IconButton size="small" color="warning" disabled={busy}
-              onClick={(e) => { e.stopPropagation(); changeSongStatus(s, 'archived'); }}>
-              {busy ? <CircularProgress size={16} color="inherit" /> : <Inventory2RoundedIcon fontSize="small" />}
-            </IconButton>
-          </span>
-        </Tooltip>
-      </>
-    );
+    const idx = playableSongs.findIndex((s) => s.id === song.id);
+    dispatch(playFromQueue({
+      queue: playableSongs.map((s) => ({
+        id: s.id,
+        title: s.title,
+        artist: s.artist?.stageName ?? 'Unknown artist',
+        coverUrl: s.coverUrl || s.album?.coverUrl || undefined,
+        source: active.source,
+      })),
+      index: idx < 0 ? 0 : idx,
+    }));
   };
 
-  // Status toggle — an icon-only frosted "liquid-glass" pill that fades in on
-  // card hover. draft -> publish, published -> archive, archived -> republish.
-  const albumToggle = (a, visible) => {
-    const busy = busyId === `album-${a.id}`;
-
-    const map = {
-      draft:     { title: 'Publish album',   icon: <PublishRoundedIcon fontSize="small" />,   next: 'published', role: 'success' },
-      published: { title: 'Archive album',   icon: <Inventory2RoundedIcon fontSize="small" />, next: 'archived',  role: 'warning' },
-      archived:  { title: 'Republish album', icon: <UnarchiveRoundedIcon fontSize="small" />,  next: 'published', role: 'success' },
-    };
-    const cfg = map[a.status] || map.draft;
-
-    return (
-      <Tooltip title={cfg.title}>
-        <IconButton
-          onClick={() => changeAlbumStatus(a, cfg.next)}
-          disabled={busy}
-          size="small"
-          aria-label={cfg.title}
-          sx={(t) => ({
-            width: 30,
-            height: 30,
-            color: `${cfg.role}.main`,
-            // frosted glass: translucent tint + blur + hairline highlight
-            bgcolor: alpha(t.palette[cfg.role].main, 0.14),
-            border: `1px solid ${alpha(t.palette[cfg.role].main, 0.35)}`,
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)',
-            boxShadow: `inset 0 1px 0 ${alpha('#fff', 0.15)}`,
-            // hover-reveal; stays clickable once shown. Mid-write, force it
-            // visible — otherwise the spinner vanishes the moment the pointer
-            // drifts off the card.
-            opacity: visible || busy ? 1 : 0,
-            pointerEvents: visible || busy ? 'auto' : 'none',
-            transform: visible || busy ? 'scale(1)' : 'scale(0.9)',
-            transition: 'opacity .18s ease, transform .18s ease, background-color .18s ease',
-            '&:hover': {
-              bgcolor: alpha(t.palette[cfg.role].main, 0.24),
-              border: `1px solid ${alpha(t.palette[cfg.role].main, 0.5)}`,
-            },
-          })}
-        >
-          {busy ? <CircularProgress size={14} color="inherit" /> : cfg.icon}
-        </IconButton>
-      </Tooltip>
-    );
+  // Playing a saved album means loading its published tracklist into the queue —
+  // the same move ArtistPage makes. The library only holds album metadata, not
+  // each album's songs, so we fetch them on demand.
+  const onAlbumPlay = async (album) => {
+    try {
+      const full = await fetchAlbum(album.id);
+      const queue = (full.songs || [])
+        .filter((s) => s.status === 'published')
+        .map((s) => ({
+          id: s.id,
+          title: s.title,
+          artist: full.artist ?? null,
+          coverUrl: full.coverUrl ?? null,
+        }));
+      if (queue.length === 0) return;
+      dispatch(playFromQueue({ queue, index: 0 }));
+    } catch {
+      // A failed album fetch should not tear down the library.
+    }
   };
+
+  // A saved list can change on another page (unsave a song from Browse, unfollow
+  // from an artist page). Dropping the cache on window focus forces a refetch when
+  // the user comes back, so the library never shows a stale row.
+  useEffect(() => {
+    const onFocus = () => setRowsByTab({});
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
+  const countLabel = (() => {
+    if (active.kind === 'artists') {
+      return `${visible.length} ${visible.length === 1 ? 'artist' : 'artists'}`;
+    }
+    return `${visible.length} ${visible.length === 1 ? 'item' : 'items'}`;
+  })();
 
   return (
-    <Box sx={{ pb: 16 }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}
-        sx={{ justifyContent: 'space-between', alignItems: { md: 'center' }, mb: 2 }}>
-        <Box>
-          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-            <Typography variant="h4" sx={{ fontWeight: 800 }}>Your Library</Typography>
-            {/* A quiet spinner while a status write settles — the page no longer
-                blanks, so this is the only hint that a refetch is in flight. */}
-            {refreshing && <CircularProgress size={16} />}
-          </Stack>
-          <Typography variant="body2" color="text.secondary">
-            Everything you've created: your drafts, published, and archived
-          </Typography>
-        </Box>
+    <Box sx={{ pb: 12 }}>
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mb: 0.5 }}>
+        <LibraryMusicRoundedIcon color="primary" />
+        <Typography variant="h4" sx={{ fontWeight: 800 }}>Your Library</Typography>
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Everything you’ve liked, saved, and followed, in one place.
+      </Typography>
 
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}
-          sx={{ alignItems: { sm: 'center' } }}>
-          <TextField
-            size="small"
-            placeholder="Search your catalog…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            sx={{ width: { xs: '100%', sm: 240 } }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRoundedIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-              },
-            }}
-          />
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={2}
+        sx={{ alignItems: { sm: 'center' }, justifyContent: 'space-between', mb: 2 }}
+      >
+        <Tabs
+          value={tab}
+          onChange={(_, v) => { setTab(v); setSearch(''); }}
+          sx={{ minHeight: 40 }}
+        >
+          {TABS.map((t) => (
+            <Tab
+              key={t.key}
+              icon={t.icon}
+              iconPosition="start"
+              label={t.label}
+              sx={{ minHeight: 40, textTransform: 'none', fontWeight: 700 }}
+            />
+          ))}
+        </Tabs>
 
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={statusFilter}
-            onChange={(_, v) => setStatusFilter(v ?? '')}
-            aria-label="filter by status"
-          >
-            <ToggleButton value="">All</ToggleButton>
-            <ToggleButton value="draft">Drafts</ToggleButton>
-            <ToggleButton value="published">Live</ToggleButton>
-            <ToggleButton value="archived">Archived</ToggleButton>
-          </ToggleButtonGroup>
-
-          {canUpload && (
-            <Button variant="outlined" startIcon={<CloudUploadRoundedIcon />}
-              onClick={() => navigate(UPLOAD)} sx={{ whiteSpace: 'nowrap' }}>
-              Upload
-            </Button>
-          )}
-        </Stack>
+        <TextField
+          size="small"
+          placeholder={`Search ${active.label.toLowerCase()}…`}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchRoundedIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            },
+          }}
+          sx={{ minWidth: { sm: 260 } }}
+        />
       </Stack>
 
-      {/* Albums. The count shows filtered/total when a filter is active, so it's
-          obvious you're looking at a subset and not a shrinking catalog. */}
-      <Typography variant="h6" sx={{ fontWeight: 700, mt: 3, mb: 1 }}>
-        Albums ({isFiltered ? `${albums.length} of ${data.albums.length}` : data.albums.length})
-      </Typography>
-      {albums.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {isFiltered ? 'No albums match your filters.' : 'No albums yet.'}
-        </Typography>
+      <Divider sx={{ mb: 3 }} />
+
+      {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr(null)}>{err}</Alert>}
+
+      {loading ? (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+          {Array.from({ length: 10 }).map((_, i) => (
+            <Box key={i} sx={{ width: 180 }}>
+              <Skeleton variant="rounded" height={180} sx={{ borderRadius: 3, mb: 1 }} />
+              <Skeleton width="80%" />
+              <Skeleton width="55%" />
+            </Box>
+          ))}
+        </Box>
+      ) : visible.length === 0 ? (
+        <Box sx={{ py: 8, textAlign: 'center' }}>
+          {needle ? (
+            <>
+              <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
+                No matches
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Nothing in {active.label.toLowerCase()} matches “{search.trim()}”.
+              </Typography>
+              <Link component="button" variant="body2" onClick={() => setSearch('')}>
+                Clear search
+              </Link>
+            </>
+          ) : (
+            <>
+              <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
+                {active.emptyTitle}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                {active.emptyBody}
+              </Typography>
+              <Button variant="contained" onClick={() => navigate(BROWSE)}>
+                Browse music
+              </Button>
+            </>
+          )}
+        </Box>
       ) : (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-          {albums.map((a) => {
-            const released = fmtDate(a.releaseDate);
-            return (
-              <Box
-                key={a.id}
-                onMouseEnter={() => setHoverId(a.id)}
-                onMouseLeave={() => setHoverId(null)}
-                sx={{
-                  width: 180,
-                  borderRadius: 3,
-                  overflow: 'hidden',              // one clip owns all four corners
-                  border: 1,
-                  borderColor: (t) => alpha(t.palette.text.primary, 0.12),
-                  bgcolor: 'action.hover',
-                  transition: 'border-color .18s ease',
-                  '&:hover': { borderColor: (t) => alpha(t.palette.text.primary, 0.22) },
-                }}
-              >
-                <MediaCard
-                  seed={a.id}
-                  imageUrl={a.coverUrl || undefined}
-                  title={a.title}
-                  hideText
-                  bare
-                  onClick={() => navigate(`/album/${a.id}`)}
-                />
+        <>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            {countLabel}
+            {needle ? ` matching “${search.trim()}”` : ''}
+          </Typography>
 
-                <Box sx={{ p: 1.25 }}>
-                  <Typography
-                    variant="subtitle2"
-                    noWrap
-                    title={a.title}
-                    sx={{ fontWeight: 700, lineHeight: 1.3 }}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+            {visible.map((it) => {
+              if (it._type === 'artist') {
+                return (
+                  <Box
+                    key={`artist-${it.id}`}
+                    onClick={() => it.username && navigate(`/artist/${it.username}`)}
+                    sx={{
+                      width: 180,
+                      textAlign: 'center',
+                      cursor: it.username ? 'pointer' : 'default',
+                      p: 1.5,
+                      borderRadius: 3,
+                      transition: 'background-color 0.15s ease',
+                      '&:hover': { bgcolor: it.username ? 'action.hover' : 'transparent' },
+                    }}
                   >
-                    {a.title}
-                  </Typography>
-
-                  <Stack direction="row" spacing={0.75}
-                    sx={{ alignItems: 'center', mt: 0.5, color: 'text.secondary' }}>
-                    <Box
-                      component="span"
-                      sx={(t) => {
-                        const c = statusColor(a.status);
-                        const isNeutral = c === 'default';
-                        return {
-                          px: 0.75, py: 0.125,
-                          borderRadius: 1,
-                          fontSize: 11, fontWeight: 600, lineHeight: 1.6,
-                          textTransform: 'capitalize',
-                          color: isNeutral ? 'text.secondary' : `${c}.main`,
-                          bgcolor: isNeutral
-                            ? t.palette.action.selected
-                            : alpha(t.palette[c].main, 0.16),
-                        };
+                    <Avatar
+                      src={it.avatarUrl || undefined}
+                      sx={{
+                        width: 120, height: 120, mx: 'auto', mb: 1.5,
+                        bgcolor: 'primary.main', fontSize: 44,
                       }}
                     >
-                      {a.status}
-                    </Box>
-                    <Typography variant="caption" noWrap>
-                      {a.isSingle ? 'Single' : 'Album'}
+                      {(it.stageName || '?').charAt(0).toUpperCase()}
+                    </Avatar>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>
+                      {it.stageName}
                     </Typography>
-                  </Stack>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      Artist
+                    </Typography>
+                  </Box>
+                );
+              }
 
-                  <Stack direction="row" spacing={0.5}
-                    sx={{ alignItems: 'center', justifyContent: 'space-between', mt: 0.5, minHeight: 32 }}>
-                    <Stack direction="row" spacing={0.5}
-                      sx={{ alignItems: 'center', color: 'text.disabled', flex: 1, minWidth: 0 }}>
-                      <CalendarMonthRoundedIcon sx={{ fontSize: 14, flexShrink: 0 }} />
-                      <Typography variant="caption" sx={{ lineHeight: 1.3 }}>
-                        {released || 'No release date'}
-                      </Typography>
-                    </Stack>
-                    {albumToggle(a, hoverId === a.id)}
-                  </Stack>
+              if (it._type === 'album') {
+                return (
+                  <Box key={`album-${it.id}`} sx={{ width: 180 }}>
+                    <AlbumCard
+                      albumId={it.id}
+                      seed={it.id}
+                      imageUrl={it.coverUrl || undefined}
+                      title={it.title}
+                      subtitle={`${it.isSingle ? 'Single' : 'Album'}${
+                        fmtDate(it.releaseDate) ? ` · ${fmtDate(it.releaseDate)}` : ''
+                      }`}
+                      isPlaying={playingId === it.id}
+                      onClick={() => navigate(`/album/${it.id}`)}
+                      onPlayAlbum={() => onAlbumPlay(it)}
+                    />
+                  </Box>
+                );
+              }
+
+              // song
+              return (
+                <Box key={`song-${it.id}`} sx={{ width: 180 }}>
+                  <SongCard
+                    songId={it.id}
+                    seed={it.id}
+                    imageUrl={it.coverUrl || it.album?.coverUrl || undefined}
+                    title={it.title}
+                    subtitle={`${it.artist?.stageName ?? 'Unknown artist'}${
+                      it.durationSeconds != null ? ` · ${fmtDuration(it.durationSeconds)}` : ''
+                    }`}
+                    isPlaying={playingId === it.id}
+                    onTogglePlay={() => onSongPlay(it)}
+                  />
                 </Box>
-              </Box>
-            );
-          })}
-        </Box>
-      )}
-
-      <Divider sx={{ mb: 1 }} />
-
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-        Songs ({isFiltered ? `${songs.length} of ${data.songs.length}` : data.songs.length})
-      </Typography>
-      {songs.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-          {isFiltered ? 'No songs match your filters.' : 'No songs yet.'}
-        </Typography>
-      ) : (
-        <List>
-          {songs.map((s, idx) => {
-            const isThis = playingId === s.id;
-            return (
-              <ListItemButton key={s.id} onClick={() => onPlaySong(idx)} sx={{ borderRadius: 2 }}>
-                <ListItemAvatar>
-                  <Avatar variant="rounded" src={s.coverUrl || undefined}
-                    sx={{ bgcolor: isThis ? 'primary.main' : 'action.selected' }}>
-                    {isThis ? <PauseRoundedIcon /> : <PlayArrowRoundedIcon />}
-                  </Avatar>
-                </ListItemAvatar>
-                <ListItemText
-                  primary={s.title}
-                  secondary={
-                    s.album ? (
-                      <Link component="button" variant="body2" underline="hover"
-                        onClick={(e) => { e.stopPropagation(); navigate(`/album/${s.album.id}`); }}>
-                        {s.album.title}
-                      </Link>
-                    ) : fmtDuration(s.durationSeconds)
-                  }
-                  slotProps={{ primary: { fontWeight: 600 } }}
-                />
-                <Chip size="small" label={s.status} color={statusColor(s.status)}
-                  variant="outlined" sx={{ mr: 1, textTransform: 'capitalize' }} />
-                {songActions(s)}
-              </ListItemButton>
-            );
-          })}
-        </List>
+              );
+            })}
+          </Box>
+        </>
       )}
     </Box>
   );

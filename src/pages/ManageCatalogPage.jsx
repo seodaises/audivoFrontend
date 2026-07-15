@@ -2,20 +2,25 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Paper, Typography, Stack, Tabs, Tab, Table, TableHead, TableBody,
   TableRow, TableCell, TableContainer, Chip, Alert, Skeleton, TextField,
-  MenuItem, IconButton, Tooltip, Button, Snackbar, InputAdornment,
+  MenuItem, IconButton, Tooltip, Button, Snackbar, InputAdornment, Link,
 } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import UnarchiveRoundedIcon from '@mui/icons-material/UnarchiveRounded';
 import PublishRoundedIcon from '@mui/icons-material/PublishRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import {
   adminListSongs, adminListAlbums,
   adminSetSongStatus, adminSetAlbumStatus,
+  adminDeleteSong, adminDeleteAlbum,
 } from '../api/catalog';
+import DeleteCatalogItemDialog from '../components/DeleteCatalogItemDialog';
 import AddGenreDialog from '../components/AddGenreDialog';
 import { useAuth } from '../store/hooks/useAuth';
 import { PERMISSIONS } from '../auth/permissions';
+import { fmtDuration, fmtCount, fmtDate } from '../utils/format';
 
 const STATUS_OPTIONS = ['', 'draft', 'published', 'archived'];
 const statusColor = (s) =>
@@ -25,9 +30,9 @@ const statusColor = (s) =>
 // search, and per-row status actions. Every write hits the ADMIN endpoints,
 // which bypass ownership (requireMinLevel(ADMIN) + manage_catalog) — so an admin
 // can archive/publish ANYONE's catalog, which is exactly the requirement.
-// Mirrors the load/err/useCallback pattern from ManageUsersPage.
 export default function ManageCatalogPage() {
   const { can } = useAuth();
+  const navigate = useNavigate();
 
   const [tab, setTab] = useState('songs');      // 'songs' | 'albums'
   const [status, setStatus] = useState('');     // '' = all
@@ -41,13 +46,9 @@ export default function ManageCatalogPage() {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
 
-  // Genre creation lives here because a genre is catalog metadata, and this is
-  // the catalog console. Gated on manage_catalog to match the route's guard.
   const [genreOpen, setGenreOpen] = useState(false);
   const [toast, setToast] = useState('');
-
-  // Wait for a pause in typing before hitting the API — otherwise every keystroke
-  // fires a request. 350ms is the usual sweet spot.
+   const [pendingDelete, setPendingDelete] = useState(null);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 350);
     return () => clearTimeout(t);
@@ -74,8 +75,6 @@ export default function ManageCatalogPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // A status write. We flip to the target status, then refetch so the row shows
-  // the DB truth (not an optimistic guess).
   const setRowStatus = async (row, nextStatus) => {
     setBusyId(row.id);
     try {
@@ -88,15 +87,83 @@ export default function ManageCatalogPage() {
       setBusyId(null);
     }
   };
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const { kind, item } = pendingDelete;
+    if (kind === 'album') await adminDeleteAlbum(item.id);
+    else await adminDeleteSong(item.id);
+    setToast(`Deleted "${item.title}"`);
+    await load();
+  };
+  const isSongs = tab === 'songs';
 
-  const COLS = 4;
+  // Column definitions per tab. COLS used to be a hardcoded 4 shared by BOTHtabs — which happened to be right only because both tables had four columns. The moment they diverge (which is now), a hardcoded colSpan silently breaks the skeleton and empty-state rows. Deriving it from the header list means it can never drift again.
+  const songCols = ['Title', 'Artist', 'Album', 'Genres', 'Duration', 'Plays', 'Status', 'Actions'];
+  const albumCols = ['Title', 'Artist', 'Type', 'Tracks', 'Released', 'Status', 'Actions'];
+  const headers = isSongs ? songCols : albumCols;
+  const COLS = headers.length;
 
-  // The empty-state line should say WHY it's empty — status filter, search, or
-  // genuinely nothing. Otherwise a search with no hits reads like a broken page.
   const emptyLabel = () => {
     if (debounced) return `No ${tab} matching "${debounced}".`;
     if (status) return `Nothing here with status "${status}".`;
     return 'Nothing here.';
+  };
+
+  // Shared between both tabs — the status lifecycle is identical for songs and
+  // albums, so the buttons are too.
+  const statusActions = (row) => {
+    const busy = busyId === row.id;
+
+    const deleteBtn = can(PERMISSIONS.MANAGE_CATALOG) && (
+      <Tooltip title="Delete permanently">
+        <span>
+          <IconButton size="small" color="error" disabled={busy}
+            onClick={() => setPendingDelete({ kind: isSongs ? 'song' : 'album', item: row })}>
+            <DeleteOutlineRoundedIcon fontSize="small" />
+          </IconButton>
+        </span>
+      </Tooltip>
+    );
+
+    if (row.status === 'archived') {
+      return (
+        <>
+          <Tooltip title="Restore to published">
+            <span>
+              <IconButton size="small" disabled={busy}
+                onClick={() => setRowStatus(row, 'published')}>
+                <UnarchiveRoundedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          {deleteBtn}
+        </>
+      );
+    }
+
+    return (
+      <>
+        {row.status === 'draft' && (
+          <Tooltip title="Publish">
+            <span>
+              <IconButton size="small" disabled={busy}
+                onClick={() => setRowStatus(row, 'published')}>
+                <PublishRoundedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+        <Tooltip title="Archive">
+          <span>
+            <IconButton size="small" color="warning" disabled={busy}
+              onClick={() => setRowStatus(row, 'archived')}>
+              <Inventory2RoundedIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        {deleteBtn}
+      </>
+    );
   };
 
   return (
@@ -158,10 +225,14 @@ export default function ManageCatalogPage() {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Title</TableCell>
-              <TableCell>Artist</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Actions</TableCell>
+              {headers.map((h) => (
+                <TableCell
+                  key={h}
+                  align={['Actions', 'Plays', 'Tracks'].includes(h) ? 'right' : 'left'}
+                >
+                  {h}
+                </TableCell>
+              ))}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -179,59 +250,81 @@ export default function ManageCatalogPage() {
                   </Typography>
                 </TableCell>
               </TableRow>
+            ) : isSongs ? (
+              rows.map((row) => (
+                <TableRow key={row.id} hover>
+                  <TableCell sx={{ fontWeight: 600 }}>{row.title}</TableCell>
+                  <TableCell>{row.artist?.stageName ?? '—'}</TableCell>
+                  <TableCell>
+                    {/* The album used to be a bare integer the admin couldn't read
+                        or click. Now it's a link to the album it belongs to. */}
+                    {row.album ? (
+                      <Link
+                        component="button"
+                        variant="body2"
+                        underline="hover"
+                        onClick={() => navigate(`/album/${row.album.id}`)}
+                      >
+                        {row.album.title}
+                      </Link>
+                    ) : '—'}
+                  </TableCell>
+                  <TableCell>
+                    {row.genres?.length ? (
+                      <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+                        {row.genres.map((g) => (
+                          <Chip key={g.id} size="small" label={g.name} variant="outlined" />
+                        ))}
+                      </Stack>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">None</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>{fmtDuration(row.durationSeconds)}</TableCell>
+                  <TableCell align="right">{fmtCount(row.playCount)}</TableCell>
+                  <TableCell>
+                    <Chip size="small" label={row.status}
+                      color={statusColor(row.status)} variant="outlined" />
+                  </TableCell>
+                  <TableCell align="right">{statusActions(row)}</TableCell>
+                </TableRow>
+              ))
             ) : (
-              rows.map((row) => {
-                const busy = busyId === row.id;
-                const isArchived = row.status === 'archived';
-                return (
-                  <TableRow key={row.id} hover>
-                    <TableCell sx={{ fontWeight: 600 }}>{row.title}</TableCell>
-                    <TableCell>{row.artist?.stageName ?? '—'}</TableCell>
-                    <TableCell>
-                      <Chip size="small" label={row.status}
-                        color={statusColor(row.status)} variant="outlined" />
-                    </TableCell>
-                    <TableCell align="right">
-                      {isArchived ? (
-                        <Tooltip title="Restore to published">
-                          <span>
-                            <IconButton size="small" disabled={busy}
-                              onClick={() => setRowStatus(row, 'published')}>
-                              <UnarchiveRoundedIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      ) : (
-                        <>
-                          {row.status === 'draft' && (
-                            <Tooltip title="Publish">
-                              <span>
-                                <IconButton size="small" disabled={busy}
-                                  onClick={() => setRowStatus(row, 'published')}>
-                                  <PublishRoundedIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          )}
-                          <Tooltip title="Archive">
-                            <span>
-                              <IconButton size="small" color="warning" disabled={busy}
-                                onClick={() => setRowStatus(row, 'archived')}>
-                                <Inventory2RoundedIcon fontSize="small" />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                        </>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })
+              rows.map((row) => (
+                <TableRow key={row.id} hover>
+                  <TableCell sx={{ fontWeight: 600 }}>{row.title}</TableCell>
+                  <TableCell>{row.artist?.stageName ?? '—'}</TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={row.isSingle ? 'Single' : 'Album'}
+                      variant="outlined"
+                    />
+                  </TableCell>
+                  <TableCell align="right">{fmtCount(row.trackCount)}</TableCell>
+                  <TableCell>{fmtDate(row.releaseDate)}</TableCell>
+                  <TableCell>
+                    <Chip size="small" label={row.status}
+                      color={statusColor(row.status)} variant="outlined" />
+                  </TableCell>
+                  <TableCell align="right">{statusActions(row)}</TableCell>
+                </TableRow>
+              ))
             )}
           </TableBody>
         </Table>
       </TableContainer>
-
+       <DeleteCatalogItemDialog
+       requirePassword = {false}
+        open={Boolean(pendingDelete)}
+        kind={pendingDelete?.kind}
+        target={pendingDelete?.item}
+        songsAtRisk={
+          pendingDelete?.kind === 'album' ? (pendingDelete.item.trackCount || 0) : 0
+        }
+        onClose={() => setPendingDelete(null)}
+        onConfirm={confirmDelete}
+      />    
       <AddGenreDialog
         open={genreOpen}
         onClose={() => setGenreOpen(false)}
