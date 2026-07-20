@@ -1,16 +1,8 @@
 import { createSlice } from '@reduxjs/toolkit';
 
-// Repeat cycles through these in order when you tap the button.
-//   off  — stop at the end of the queue (the original behaviour)
-//   all  — wrap: after the last track, go back to the first
-//   one  — replay the SAME track when it ends (but a manual "next" still skips)
 export const REPEAT_MODES = ['off', 'all', 'one'];
 
 const initialState = {
-  // The playback queue: the list of tracks the player can walk with next/prev.
-  // Browse (or any view) hands the player the list it's showing; the player
-  // remembers it so skip/prev have somewhere to go. Each entry is the light
-  // shape the bar needs: { id, title, artist, coverUrl }.
   queue: [],
   index: -1,       // position of `current` within queue, or -1 if none
   current: null,   // { id, title, artist, coverUrl } of the loaded track, or null
@@ -88,30 +80,72 @@ const advance = (state, { auto }) => {
     return;
   }
 
-  const atEnd = state.orderPos >= state.order.length - 1;
+  const currentIndex = state.index;
+  const nextQueueIndex = state.order[state.orderPos + 1];
 
-  if (atEnd) {
+  if (state.orderPos >= state.order.length - 1) {
     if (state.repeat === 'all') {
-      // Wrap to the front of the (possibly shuffled) order.
       const firstQueueIndex = state.order[0];
-      loadAt(state, state.queue, firstQueueIndex);
-      state.isPlaying = true;
+      const trimmedQueue = state.queue.filter((_, idx) => idx !== currentIndex);
+      const adjustedIndex = firstQueueIndex > currentIndex ? firstQueueIndex - 1 : firstQueueIndex;
+      state.queue = trimmedQueue;
+      if (trimmedQueue.length > 0) {
+        rebuildOrder(state, adjustedIndex);
+        loadAt(state, trimmedQueue, adjustedIndex);
+      } else {
+        state.current = null;
+        state.index = -1;
+        state.isPlaying = false;
+        state.progress = 0;
+        state.order = [];
+        state.orderPos = -1;
+      }
     } else {
-      // off: stop, but keep the track loaded so the bar still shows it.
+      const trimmedQueue = state.queue.filter((_, idx) => idx !== currentIndex);
+      state.queue = trimmedQueue;
       state.isPlaying = false;
       state.progress = 0;
+      state.index = -1;
+      state.current = trimmedQueue[0] ?? null;
+      state.order = [];
+      state.orderPos = -1;
     }
     return;
   }
 
-  const nextQueueIndex = state.order[state.orderPos + 1];
-  loadAt(state, state.queue, nextQueueIndex);
+  const trimmedQueue = state.queue.filter((_, idx) => idx !== currentIndex);
+  const adjustedNextIndex = nextQueueIndex > currentIndex ? nextQueueIndex - 1 : nextQueueIndex;
+  state.queue = trimmedQueue;
+  if (trimmedQueue.length === 0) {
+    state.current = null;
+    state.index = -1;
+    state.isPlaying = false;
+    state.progress = 0;
+    state.order = [];
+    state.orderPos = -1;
+    return;
+  }
+  rebuildOrder(state, adjustedNextIndex);
+  loadAt(state, trimmedQueue, adjustedNextIndex);
 };
 
 const playerSlice = createSlice({
   name: 'player',
   initialState,
   reducers: {
+    restorePlayback(state, action) {
+      const { track, progress = 0, isPlaying = false } = action.payload || {};
+      if (!track?.id) return;
+      if (state.current && String(state.current.id) !== String(track.id)) return;
+      state.queue = [track];
+      state.index = 0;
+      state.current = track;
+      state.isPlaying = Boolean(isPlaying);
+      state.progress = Number(progress) || 0;
+      state.duration = 0;
+      rebuildOrder(state, 0);
+    },
+
     // Play a single track with NO queue context (e.g. from a one-off card).
     // next/prev will have nowhere to go, which is fine.
     playTrack(state, action) {
@@ -122,6 +156,73 @@ const playerSlice = createSlice({
       state.isPlaying = true;
       state.progress = 0;
       state.duration = 0;
+      rebuildOrder(state, 0);
+    },
+
+    enqueueTrack(state, action) {
+      const track = action.payload;
+      if (!track?.id) return;
+      const nextQueue = [...state.queue];
+      nextQueue.push(track);
+      state.queue = nextQueue;
+      rebuildOrder(state, state.index < 0 ? 0 : state.index);
+      if (!state.current) {
+        state.current = track;
+        state.index = 0;
+        state.isPlaying = true;
+        state.progress = 0;
+        state.duration = 0;
+      }
+    },
+
+    reorderQueue(state, action) {
+      const { fromIndex, toIndex } = action.payload || {};
+      if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex)) return;
+      if (fromIndex === toIndex) return;
+      if (fromIndex < 0 || toIndex < 0 || fromIndex >= state.queue.length || toIndex >= state.queue.length) return;
+      const nextQueue = [...state.queue];
+      const [moved] = nextQueue.splice(fromIndex, 1);
+      nextQueue.splice(toIndex, 0, moved);
+      state.queue = nextQueue;
+      const currentId = state.current?.id;
+      const currentIndex = nextQueue.findIndex((item) => String(item.id) === String(currentId));
+      if (currentIndex >= 0) {
+        state.index = currentIndex;
+        state.current = nextQueue[currentIndex] ?? null;
+        rebuildOrder(state, currentIndex);
+      } else {
+        rebuildOrder(state, state.index < 0 ? 0 : state.index);
+      }
+    },
+
+    removeFromQueue(state, action) {
+      const index = action.payload;
+      if (!Number.isInteger(index) || index < 0 || index >= state.queue.length) return;
+      const currentId = state.current?.id;
+      const currentIndex = state.queue.findIndex((item) => String(item.id) === String(currentId));
+      if (currentIndex >= 0 && index === currentIndex) return;
+      const nextQueue = state.queue.filter((_, itemIndex) => itemIndex !== index);
+      state.queue = nextQueue;
+      if (currentIndex >= 0 && index < currentIndex) {
+        state.index = currentIndex - 1;
+      } else if (currentIndex >= 0 && index === currentIndex) {
+        state.index = currentIndex;
+      } else {
+        state.index = state.index < 0 ? -1 : state.index;
+      }
+      rebuildOrder(state, state.index < 0 ? 0 : state.index);
+    },
+
+    clearQueue(state) {
+      if (!state.current) {
+        state.queue = [];
+        state.index = -1;
+        state.order = [];
+        state.orderPos = -1;
+        return;
+      }
+      state.queue = [state.current];
+      state.index = 0;
       rebuildOrder(state, 0);
     },
 
@@ -200,7 +301,8 @@ const playerSlice = createSlice({
 });
 
 export const {
-  playTrack, playFromQueue, next, prev,
+  restorePlayback,
+  playTrack, playFromQueue, enqueueTrack, reorderQueue, removeFromQueue, clearQueue, next, prev,
   pause, resume, togglePlay,
   cycleRepeat, toggleShuffle,
   setProgress, setDuration, requestSeek, clearSeek, ended, reset,

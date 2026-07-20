@@ -2,17 +2,13 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { api } from '../../api/client';
 import { ROLES } from '../../auth/permissions';
 import { reset as resetPlayer } from './playerSlice';
-
-// NOTE: There is no token handling in this slice anymore. The JWT lives in an
-// httpOnly cookie set by the backend — invisible to JavaScript. The browser
-// sends it automatically on every request (axios withCredentials). The user
-// object lives in Redux memory only and is NEVER persisted; on a refresh it is
-// re-fetched from /auth/me, which the cookie authenticates.
+import { setPlaybarHidden as setPlaybarHiddenAction } from './sidebarSlice';
 
 const shapeUser = (u) => {
   const key = (u.role || '').toLowerCase().replace(/\s+/g, '_');
   const role = ROLES[key] || { key, label: u.role || 'Unknown', level: 0, permissions: [] };
-  const permissions = Array.isArray(u.permissions) ? u.permissions : role.permissions;
+  const sent = Array.isArray(u.permissions) ? u.permissions : [];
+  const permissions = sent.length ? sent : role.permissions;
 
   return {
     id: u.id,
@@ -104,6 +100,7 @@ export const logout = createAsyncThunk(
     // Stop playback and tear down the player so audio doesn't keep going and
     // the now-playing bar disappears when the session ends.
     dispatch(resetPlayer());
+    dispatch(setPlaybarHiddenAction(true));
     return true;
   }
 );
@@ -128,6 +125,7 @@ export const deleteAccount = createAsyncThunk(
       await api('/auth/me', { method: 'DELETE', body: { password } });
       // Same teardown as logout — the session is over.
       dispatch(resetPlayer());
+      dispatch(setPlaybarHiddenAction(true));
       return true;
     } catch (err) {
       return rejectWithValue(err.message);
@@ -152,9 +150,6 @@ const initialState = {
   user: null,
   loading: false,
   error: null,
-  // True until the first refreshUser (on app load) settles. RequireAuth uses
-  // this to show a "checking session" state instead of redirecting to /login
-  // before we know whether the cookie represents a valid session.
   checkingSession: true,
 };
 
@@ -188,11 +183,9 @@ const authSlice = createSlice({
         state.checkingSession = false;
       })
       .addCase(refreshUser.rejected, (state) => {
-        // Cookie missing/expired/invalid → no valid session. Clear any stale
-        // user so route guards correctly treat this as logged-out (this is
-        // the refresh-gap fix).
         state.user = null;
         state.checkingSession = false;
+        state.error = null;
       })
 
       // ---- register ----

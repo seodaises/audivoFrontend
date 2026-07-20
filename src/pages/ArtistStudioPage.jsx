@@ -8,14 +8,27 @@ import {
 } from '@mui/material';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded';
 import MusicNoteRoundedIcon from '@mui/icons-material/MusicNoteRounded';
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor,
+  useSensor, useSensors,
+} from '@dnd-kit/core';
+import {
+  SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy,
+  useSortable, arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
 import PublicRoundedIcon from '@mui/icons-material/PublicRounded';
 import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRenameOutlineRounded';
+import ScheduleSendRoundedIcon from '@mui/icons-material/ScheduleSendRounded';
 import {
   createArtistProfile, getMyArtistProfile, createAlbum, setAlbumStatus,
-  uploadSong, setSongStatus, fetchGenres,
+  scheduleRelease, uploadSong, setSongStatus, fetchGenres,
 } from '../api/catalog';
+import AudivoCalendar from '../components/AudivoCalendar';
+import AudivoTimeSelect from '../components/AudivoTimeSelect';
 
 const STEPS = ['Artist profile', 'Album details', 'Add tracks', 'Review & create'];
 
@@ -26,16 +39,16 @@ const fmtDuration = (secs) => {
   return `${m}:${s}`;
 };
 
-// today's date as YYYY-MM-DD in the user's local timezone — used as the default
-// release date for a single when the artist leaves the field blank.
 const todayISO = () => {
   const d = new Date();
   const off = d.getTimezoneOffset();
   return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10);
 };
 
-// pretty-print a YYYY-MM-DD string for display (e.g. "12 Mar 2026"). Falls back
-// to em dash when there's no date.
+
+const todayISOFromDate = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
 const fmtDate = (iso) => {
   if (!iso) return '—';
   const d = new Date(`${iso}T00:00:00`);
@@ -43,9 +56,6 @@ const fmtDate = (iso) => {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-// Read an audio file's duration in the browser, no upload needed. We load the
-// file into an <audio> element and wait for its metadata; the duration is then
-// available. Returns whole seconds, or null if the browser can't decode it.
 const readAudioDuration = (file) =>
   new Promise((resolve) => {
     try {
@@ -64,6 +74,91 @@ const readAudioDuration = (file) =>
     }
   });
 
+function SortableTrackRow({
+  track, index, genres, draggable, onUpdate, onRemove, fmtDuration,
+}) {
+  const {
+    attributes, listeners, setNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: track.key, disabled: !draggable });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <ListItem
+      ref={setNodeRef}
+      style={style}
+      disableGutters
+      sx={{
+        borderBottom: 1, borderColor: 'divider', py: 2, alignItems: 'flex-start',
+        bgcolor: isDragging ? 'action.hover' : 'transparent',
+      }}
+      secondaryAction={
+        <Tooltip title="Remove">
+          <IconButton edge="end" onClick={() => onRemove(track.key)}>
+            <DeleteOutlineRoundedIcon />
+          </IconButton>
+        </Tooltip>
+      }
+    >
+      <Stack direction="row" spacing={1} sx={{ width: '100%', pr: 5 }}>
+        {draggable && (
+          <Box
+            {...attributes}
+            {...listeners}
+            aria-label="Drag to reorder track"
+            sx={{
+              cursor: 'grab', display: 'flex', alignItems: 'center',
+              color: 'text.disabled', touchAction: 'none',
+              '&:active': { cursor: 'grabbing' },
+            }}
+          >
+            <DragIndicatorRoundedIcon />
+          </Box>
+        )}
+
+        <Box sx={{ width: '100%' }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
+            <TextField
+              label={`Track ${index + 1} title`}
+              value={track.title}
+              onChange={(e) => onUpdate(track.key, { title: e.target.value })}
+              size="small" sx={{ flexGrow: 1 }}
+            />
+            <Chip size="small" variant="outlined"
+              label={track.durationSeconds != null ? fmtDuration(track.durationSeconds) : 'duration ?'} />
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}
+            sx={{ mt: 1.5, alignItems: { sm: 'center' } }}>
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel>Genre</InputLabel>
+              <Select
+                label="Genre"
+                value={track.genreIds[0] || ''}
+                onChange={(e) => onUpdate(track.key, { genreIds: e.target.value ? [e.target.value] : [] })}
+              >
+                <MenuItem value="">None</MenuItem>
+                {genres.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
+              </Select>
+            </FormControl>
+            <FormControlLabel
+              control={<Switch checked={track.publish}
+                onChange={(e) => onUpdate(track.key, { publish: e.target.checked })} />}
+              label={track.publish ? 'Publish' : 'Save as draft'}
+            />
+            <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 200 }}>
+              {track.file.name}
+            </Typography>
+          </Stack>
+        </Box>
+      </Stack>
+    </ListItem>
+  );
+}
+
 export default function ArtistStudioPage() {
   const [activeStep, setActiveStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -81,10 +176,7 @@ export default function ArtistStudioPage() {
   const [albumDescription, setAlbumDescription] = useState('');
   const [isSingle, setIsSingle] = useState(false);
   const [coverUrl, setCoverUrl] = useState('');
-  const [releaseDate, setReleaseDate] = useState('');   // YYYY-MM-DD, optional
 
-  // Step 3 — the track queue. Each entry:
-  // { key, title, file, durationSeconds, genreIds, publish (bool) }
   const [tracks, setTracks] = useState([]);
   const [genres, setGenres] = useState([]);
   const fileInputRef = useRef(null);
@@ -92,11 +184,22 @@ export default function ArtistStudioPage() {
   // progress during the final create
   const [progress, setProgress] = useState({ done: 0, total: 0 });
 
-  // Album-level release intent chosen on the review step. 'publish' respects the
-  // per-track publish switches and takes the album live; 'draft' overrides
-  // everything to keep the whole release private until the artist publishes it
-  // later from their Library.
   const [releaseMode, setReleaseMode] = useState('publish');
+
+  const seedSchedule = () => {
+    const d = new Date(Date.now() + 60 * 60000);
+    d.setMinutes(d.getMinutes() <= 30 ? 30 : 0, 0, 0);
+    if (d.getMinutes() === 0 && d.getTime() < Date.now()) d.setHours(d.getHours() + 1);
+    return d;
+  };
+  const [scheduleDate, setScheduleDate] = useState(() => {
+    const d = seedSchedule();
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  });
+  const [scheduleTime, setScheduleTime] = useState(() => {
+    const d = seedSchedule();
+    return `${String(d.getHours()).padStart(2, '0')}:${d.getMinutes() < 30 ? '00' : '30'}`;
+  });
 
   useEffect(() => {
     getMyArtistProfile()
@@ -118,9 +221,6 @@ export default function ArtistStudioPage() {
     setActiveStep(1);
   });
 
-  // A single is capped at exactly one track. Toggling "single" on while more
-  // than one track is already queued would create an invalid state, so we block
-  // that toggle and tell the artist to remove tracks first.
   const onToggleSingle = (checked) => {
     if (checked && tracks.length > 1) {
       setErr('A single can only have one track. Remove the extra tracks first, then switch to single.');
@@ -135,9 +235,6 @@ export default function ArtistStudioPage() {
     const files = Array.from(fileList || []);
     if (!files.length) return;
 
-    // Enforce the single cap: a single may hold exactly one track. If the artist
-    // already has one queued, or tries to add several at once, we trim to the
-    // first and surface why.
     let toAdd = files;
     if (isSingle) {
       if (tracks.length >= 1) {
@@ -172,6 +269,23 @@ export default function ArtistStudioPage() {
   const removeTrack = (key) =>
     setTracks((prev) => prev.filter((t) => t.key !== key));
 
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const onTrackDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setTracks((prev) => {
+      const from = prev.findIndex((t) => t.key === active.id);
+      const to = prev.findIndex((t) => t.key === over.id);
+      if (from === -1 || to === -1) return prev;
+      return arrayMove(prev, from, to);
+    });
+  };
+
   // --- Final create: album + all tracks, each with its chosen status ---
   const doCreateEverything = () => wrap(async () => {
     if (!albumTitle.trim()) throw new Error('Album title is required.');
@@ -180,10 +294,31 @@ export default function ArtistStudioPage() {
       throw new Error('A single can only have one track. Remove the extra tracks or turn off "single".');
     }
 
-    // A single with no explicit date releases today; a normal album keeps
-    // whatever the artist picked (which may be null).
+    // If scheduling, combine the chosen calendar day + time slot into one instant
+    // and validate it's genuinely in the future BEFORE we upload anything.
+    let scheduleInstant = null;
+    if (releaseMode === 'schedule') {
+      if (!scheduleDate || !scheduleTime) {
+        throw new Error('Pick a date and time to schedule the release.');
+      }
+      const [h, m] = scheduleTime.split(':').map(Number);
+      const when = new Date(
+        scheduleDate.getFullYear(), scheduleDate.getMonth(), scheduleDate.getDate(),
+        h, m, 0, 0,
+      );
+      if (Number.isNaN(when.getTime())) throw new Error('That release date/time is not valid.');
+      if (when.getTime() <= Date.now() + 60000) {
+        throw new Error('The scheduled time must be at least a minute in the future.');
+      }
+      scheduleInstant = when.toISOString(); // -> UTC ISO, timezone-safe for the server
+    }
+
     const effectiveReleaseDate =
-      releaseDate.trim() || (isSingle ? todayISO() : null);
+      releaseMode === 'schedule'
+        ? todayISOFromDate(scheduleDate)
+        : releaseMode === 'publish'
+          ? todayISO()
+          : null;
 
     // 1. Create the album. It starts as a draft server-side.
     const album = await createAlbum({
@@ -194,10 +329,6 @@ export default function ArtistStudioPage() {
       isSingle,
     });
 
-    // 2. Upload each track in order, then set its status. Uploads default to
-    //    'draft' server-side. In 'publish' mode we promote the tracks the artist
-    //    toggled on; in 'draft' mode we promote nothing — the whole release stays
-    //    private until published later from the Library.
     const publishing = releaseMode === 'publish';
     setProgress({ done: 0, total: tracks.length });
     for (let i = 0; i < tracks.length; i += 1) {
@@ -216,28 +347,39 @@ export default function ArtistStudioPage() {
       setProgress({ done: i + 1, total: tracks.length });
     }
 
-    // 3. Promote the ALBUM itself. Previously this step was missing, so the
-    //    songs published but the album was left as a draft — the bug we fixed.
-    //    In draft mode we skip this entirely; in publish mode, if any track went
-    //    live the album goes live too. The backend cascade re-publishes only
-    //    DRAFT songs, so tracks already published above are untouched (idempotent).
     const anyPublished = publishing && tracks.some((t) => t.publish);
     if (anyPublished) {
       await setAlbumStatus(album.id, 'published');
     }
 
+    if (releaseMode === 'schedule') {
+      await scheduleRelease(album.id, scheduleInstant);
+    }
+
+    const scheduledPretty = scheduleInstant
+      ? new Date(scheduleInstant).toLocaleString(undefined, {
+          day: 'numeric', month: 'short', year: 'numeric',
+          hour: 'numeric', minute: '2-digit',
+        })
+      : '';
+
     setNotice(
-      !publishing
-        ? `Album "${album.title}" saved as a draft — publish it anytime from your Library.`
-        : anyPublished
-          ? `Album "${album.title}" published — ${tracks.filter((t) => t.publish).length} track(s) live, the rest saved as drafts.`
-          : `Album "${album.title}" created with all tracks saved as drafts.`
+      releaseMode === 'schedule'
+        ? `Album "${album.title}" scheduled to go live on ${scheduledPretty}. It stays a private, editable draft until then.`
+        : !publishing
+          ? `Album "${album.title}" saved as a draft — publish it anytime from your Library.`
+          : anyPublished
+            ? `Album "${album.title}" published — ${tracks.filter((t) => t.publish).length} track(s) live, the rest saved as drafts.`
+            : `Album "${album.title}" created with all tracks saved as drafts.`
     );
 
     // Reset for a fresh album.
     setAlbumTitle(''); setAlbumDescription(''); setCoverUrl(''); setIsSingle(false);
-    setReleaseDate(''); setTracks([]); setProgress({ done: 0, total: 0 });
+    setTracks([]); setProgress({ done: 0, total: 0 });
     setReleaseMode('publish');
+    const s = seedSchedule();
+    setScheduleDate(new Date(s.getFullYear(), s.getMonth(), s.getDate()));
+    setScheduleTime(`${String(s.getHours()).padStart(2, '0')}:${s.getMinutes() < 30 ? '00' : '30'}`);
     setActiveStep(1);
   });
 
@@ -292,17 +434,6 @@ export default function ArtistStudioPage() {
               fullWidth multiline minRows={3} placeholder="Tell listeners about this release…" />
             <TextField label="Cover image URL" value={coverUrl} onChange={(e) => setCoverUrl(e.target.value)}
               fullWidth placeholder="https://…" />
-            <TextField
-              type="date"
-              label="Release date"
-              value={releaseDate}
-              onChange={(e) => setReleaseDate(e.target.value)}
-              fullWidth
-              InputLabelProps={{ shrink: true }}
-              helperText={isSingle
-                ? 'Optional — a single with no date is released today.'
-                : 'Optional — leave blank if the release date is undecided.'}
-            />
             <FormControlLabel
               control={<Switch checked={isSingle} onChange={(e) => onToggleSingle(e.target.checked)} />}
               label="This is a single (one track only)"
@@ -349,55 +480,38 @@ export default function ArtistStudioPage() {
               </Typography>
             </Box>
           ) : (
-            <List disablePadding>
-              {tracks.map((t, idx) => (
-                <ListItem key={t.key} disableGutters
-                  sx={{ borderBottom: 1, borderColor: 'divider', py: 2, alignItems: 'flex-start' }}
-                  secondaryAction={
-                    <Tooltip title="Remove">
-                      <IconButton edge="end" onClick={() => removeTrack(t.key)}>
-                        <DeleteOutlineRoundedIcon />
-                      </IconButton>
-                    </Tooltip>
-                  }
+            <>
+              {tracks.length > 1 && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                  Drag the handle to set the track order — that's the order they'll be saved in.
+                </Typography>
+              )}
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={onTrackDragEnd}
+              >
+                <SortableContext
+                  items={tracks.map((t) => t.key)}
+                  strategy={verticalListSortingStrategy}
                 >
-                  <Box sx={{ width: '100%', pr: 5 }}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
-                      <TextField
-                        label={`Track ${idx + 1} title`}
-                        value={t.title}
-                        onChange={(e) => updateTrack(t.key, { title: e.target.value })}
-                        size="small" sx={{ flexGrow: 1 }}
+                  <List disablePadding>
+                    {tracks.map((t, idx) => (
+                      <SortableTrackRow
+                        key={t.key}
+                        track={t}
+                        index={idx}
+                        genres={genres}
+                        draggable={tracks.length > 1}
+                        onUpdate={updateTrack}
+                        onRemove={removeTrack}
+                        fmtDuration={fmtDuration}
                       />
-                      <Chip size="small" variant="outlined"
-                        label={t.durationSeconds != null ? fmtDuration(t.durationSeconds) : 'duration ?'} />
-                    </Stack>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}
-                      sx={{ mt: 1.5, alignItems: { sm: 'center' } }}>
-                      <FormControl size="small" sx={{ minWidth: 160 }}>
-                        <InputLabel>Genre</InputLabel>
-                        <Select
-                          label="Genre"
-                          value={t.genreIds[0] || ''}
-                          onChange={(e) => updateTrack(t.key, { genreIds: e.target.value ? [e.target.value] : [] })}
-                        >
-                          <MenuItem value="">None</MenuItem>
-                          {genres.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
-                        </Select>
-                      </FormControl>
-                      <FormControlLabel
-                        control={<Switch checked={t.publish}
-                          onChange={(e) => updateTrack(t.key, { publish: e.target.checked })} />}
-                        label={t.publish ? 'Publish' : 'Save as draft'}
-                      />
-                      <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 200 }}>
-                        {t.file.name}
-                      </Typography>
-                    </Stack>
-                  </Box>
-                </ListItem>
-              ))}
-            </List>
+                    ))}
+                  </List>
+                </SortableContext>
+              </DndContext>
+            </>
           )}
 
           <Stack direction="row" spacing={2} sx={{ mt: 3 }}>
@@ -421,8 +535,11 @@ export default function ArtistStudioPage() {
             <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', color: 'text.secondary' }}>
               <CalendarMonthRoundedIcon sx={{ fontSize: 16 }} />
               <Typography variant="body2">
-                Releases {fmtDate(releaseDate.trim() || (isSingle ? todayISO() : ''))}
-                {!releaseDate.trim() && isSingle ? ' (today)' : ''}
+                {releaseMode === 'schedule'
+                  ? `Releases ${fmtDate(todayISOFromDate(scheduleDate))}`
+                  : releaseMode === 'publish'
+                    ? 'Releases today'
+                    : 'No release date until published'}
               </Typography>
             </Stack>
             <Typography variant="body2" color="text.secondary">
@@ -455,9 +572,6 @@ export default function ArtistStudioPage() {
           )}
 
           <Divider sx={{ my: 2 }} />
-
-          {/* Release intent: publish now (respects the per-track switches) or
-              save the whole thing as a draft to publish later from the Library. */}
           <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
             How do you want to release this?
           </Typography>
@@ -476,11 +590,47 @@ export default function ArtistStudioPage() {
               <DriveFileRenameOutlineRoundedIcon sx={{ fontSize: 18, mr: 1 }} />
               Save as draft
             </ToggleButton>
+            <ToggleButton value="schedule" sx={{ textTransform: 'none', px: 2 }}>
+              <ScheduleSendRoundedIcon sx={{ fontSize: 18, mr: 1 }} />
+              Schedule
+            </ToggleButton>
           </ToggleButtonGroup>
+
+          {releaseMode === 'schedule' && (
+            <Paper variant="outlined" sx={{ p: 2, mb: 1, borderRadius: 3 }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}
+                sx={{ alignItems: { sm: 'flex-start' } }}>
+                <Box sx={{ flex: '0 0 auto', width: { xs: '100%', sm: 280 } }}>
+                  <AudivoCalendar
+                    value={scheduleDate}
+                    onChange={setScheduleDate}
+                    minDate={new Date()}
+                  />
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0, width: '100%' }}>
+                  <Typography variant="caption" color="text.secondary"
+                    sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
+                    Time (30-minute slots)
+                  </Typography>
+                  <AudivoTimeSelect
+                    value={scheduleTime}
+                    onChange={setScheduleTime}
+                    label="Release time"
+                  />
+                  <Typography variant="caption" color="text.secondary"
+                    sx={{ display: 'block', mt: 1.5 }}>
+                    Uses your local time. Publishes automatically at the selected slot.
+                  </Typography>
+                </Box>
+              </Stack>
+            </Paper>
+          )}
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
             {releaseMode === 'publish'
               ? `Goes live now. ${publishCount} of ${tracks.length} track(s) will publish; the rest stay draft.`
-              : 'Nothing goes public. The album and every track are saved as drafts — publish anytime from your Library.'}
+              : releaseMode === 'schedule'
+                ? 'Nothing goes public yet. The album and its tracks are saved privately and publish automatically at the time above — you can keep editing until then.'
+                : 'Nothing goes public. The album and every track are saved as drafts — publish anytime from your Library.'}
           </Typography>
 
           <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
@@ -489,7 +639,9 @@ export default function ArtistStudioPage() {
               onClick={doCreateEverything} disabled={busy}>
               {busy
                 ? <CircularProgress size={22} />
-                : releaseMode === 'draft' ? 'Save draft' : 'Publish album'}
+                : releaseMode === 'draft' ? 'Save draft'
+                  : releaseMode === 'schedule' ? 'Schedule release'
+                    : 'Publish album'}
             </Button>
           </Stack>
         </Paper>

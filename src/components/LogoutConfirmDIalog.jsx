@@ -3,20 +3,18 @@ import {
   Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button,
 } from '@mui/material';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/hooks/useAuth';
 import { LOGIN } from '../constants/route_constant';
 
 export default function LogoutConfirmDialog({ open, onClose }) {
   const { logout } = useAuth();
-  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
 
   const handleConfirm = async () => {
     setBusy(true);
-    await logout();          // clears the in memory user + stops playback
-    navigate(LOGIN);         // send them to the login screen
-    // no need to reset busy — the component unmounts on navigation
+    await logout(); // clears the in-memory user and tears down playback
+    window.location.assign(LOGIN); // full reload ensures audio and UI state are reset
+    // no need to reset busy — the page unloads on navigation
   };
 
   return (

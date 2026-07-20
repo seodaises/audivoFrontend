@@ -117,3 +117,21 @@ export function fetchAlbumStatus(albumId) {
 export function fetchArtistStatus(artistProfileId) {
   return api(`/me/status/artist/${artistProfileId}`).then((res) => res.data);
 }
+// ── Listening history (Library) ──────────────────────────────────────────────
+// GET /me/history/recent -> { items: [song] }  (distinct songs, latest listen first)
+export function fetchRecentlyPlayed({ limit = 20 } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return api(`/me/history/recent?${params.toString()}`).then((res) => res.data);
+}
+
+// GET /me/history/most-played -> { items: [song + myPlayCount] }  (caller's own top songs)
+export function fetchMostPlayed({ limit = 20 } = {}) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return api(`/me/history/most-played?${params.toString()}`).then((res) => res.data);
+}
+
+// GET /me/comments -> { items: [comment + song], total, page, limit }
+export function fetchMyComments({ page = 1, limit = 50 } = {}) {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+  return api(`/me/comments?${params.toString()}`).then((res) => res.data);
+}

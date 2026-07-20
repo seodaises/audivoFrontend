@@ -6,10 +6,8 @@ import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import LibraryMusicRoundedIcon from '@mui/icons-material/LibraryMusicRounded';
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
-import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import BarChartRoundedIcon from '@mui/icons-material/BarChartRounded';
-import StarRoundedIcon from '@mui/icons-material/StarRounded';
 import ForumRoundedIcon from '@mui/icons-material/ForumRounded';
 import MailRoundedIcon from '@mui/icons-material/MailRounded';
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded';
@@ -25,7 +23,7 @@ import { useSidebar } from '../../store/hooks/useSidebar';
 import { PERMISSIONS } from '../../auth/permissions';
 import ProfileMenu from '../ProfileMenu';
 import {
-  DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS,
+  DASHBOARD, BROWSE, LIBRARY, UPLOAD, USERS,
   ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES,
   MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER
 } from '../../constants/route_constant';
@@ -43,15 +41,9 @@ const baseItems = [
   { label: 'Discover', icon: <PublicRoundedIcon />, path: DISCOVER },
 ];
 
-// `hideForSuperAdmin` marks items a Super Admin shouldn't see even though their
-// permission set would otherwise grant them. Upload/Delete Songs are artist-
-// facing tools; a Super Admin manages the catalog through Manage Catalog, not
-// these per-song pages.
 const gatedItems = [
   { label: 'My Catalog',   icon: <Inventory2RoundedIcon />,        path: MY_CATALOG,     permission: PERMISSIONS.UPLOAD_SONGS },
   { label: 'Upload Songs',  icon: <CloudUploadRoundedIcon />,        path: UPLOAD,         permission: PERMISSIONS.UPLOAD_SONGS },
-  { label: 'Delete Songs',  icon: <DeleteRoundedIcon />,             path: SONGS,          permission: PERMISSIONS.DELETE_SONGS,  hideForSuperAdmin: true },
-  { label: 'Feature Songs', icon: <StarRoundedIcon />,               path: FEATURE,        permission: PERMISSIONS.FEATURE_SONGS },
   { label: 'Manage Users',  icon: <PeopleRoundedIcon />,             path: USERS,          permission: PERMISSIONS.MANAGE_USERS },
   { label: 'Manage Artists', icon: <VerifiedUserRoundedIcon />,      path: MANAGE_ARTISTS, permission: PERMISSIONS.MANAGE_CATALOG },
   { label: 'Manage Catalog', icon: <LibraryAddCheckRoundedIcon />,   path: MANAGE_CATALOG, permission: PERMISSIONS.MANAGE_CATALOG },
@@ -66,14 +58,11 @@ const superAdminItems = [
   { label: 'Manage Admins', icon: <ShieldRoundedIcon />, path: ADMINS },
 ];
 
-export default function Sidebar() {
+export function SidebarNav({ rail, onNavigate = () => {} }) {
   const { user, can } = useAuth();
-  const { sidebarHidden } = useSidebar();   // true = collapsed to the icon rail
   const navigate = useNavigate();
   const { pathname } = useLocation();
 
-  const rail = sidebarHidden;               // rename for readability below
-  const width = rail ? RAIL_WIDTH : FULL_WIDTH;
   const isSuperAdmin = user?.role === 'Super Admin';
 
   const visibleGated = [
@@ -90,7 +79,7 @@ export default function Sidebar() {
       <ListItemButton
         key={item.path}
         selected={pathname === item.path}
-        onClick={() => navigate(item.path)}
+        onClick={() => { navigate(item.path); onNavigate(); }}
         sx={{
           borderRadius: 2, mx: 1, mb: 0.5,
           justifyContent: rail ? 'center' : 'flex-start',
@@ -108,6 +97,39 @@ export default function Sidebar() {
       ? <Tooltip key={item.path} title={item.label} placement="right">{button}</Tooltip>
       : button;
   };
+
+  return (
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ overflowY: 'auto', overflowX: 'hidden', py: 1, flexGrow: 1 }}>
+        <List>{baseItems.map(renderItem)}</List>
+        {visibleGated.length > 0 && (
+          <>
+            <Divider sx={{ my: 1 }} />
+            {!rail && (
+              <Typography variant="overline" sx={{ px: 3, color: 'text.secondary' }}>
+                {user.role} tools
+              </Typography>
+            )}
+            <List>{visibleGated.map(renderItem)}</List>
+          </>
+        )}
+      </Box>
+
+      {user && (
+        <>
+          <Divider />
+          <ProfileMenu collapsed={rail} />
+        </>
+      )}
+    </Box>
+  );
+}
+
+export default function Sidebar() {
+  const { sidebarHidden } = useSidebar();   // true = collapsed to the icon rail
+
+  const rail = sidebarHidden;               // rename for readability below
+  const width = rail ? RAIL_WIDTH : FULL_WIDTH;
 
   return (
     <Drawer
@@ -130,29 +152,8 @@ export default function Sidebar() {
       }}
     >
       <Toolbar /> {/* spacer so content starts below the fixed header */}
-
-      <Box sx={{ height: 'calc(100% - 64px)', display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ overflowY: 'auto', overflowX: 'hidden', py: 1, flexGrow: 1 }}>
-          <List>{baseItems.map(renderItem)}</List>
-          {visibleGated.length > 0 && (
-            <>
-              <Divider sx={{ my: 1 }} />
-              {!rail && (
-                <Typography variant="overline" sx={{ px: 3, color: 'text.secondary' }}>
-                  {user.role} tools
-                </Typography>
-              )}
-              <List>{visibleGated.map(renderItem)}</List>
-            </>
-          )}
-        </Box>
-
-        {user && (
-          <>
-            <Divider />
-            <ProfileMenu collapsed={rail} />
-          </>
-        )}
+      <Box sx={{ height: 'calc(100% - 64px)' }}>
+        <SidebarNav rail={rail} />
       </Box>
     </Drawer>
   );

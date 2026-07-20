@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Stack, IconButton, Tooltip } from '@mui/material';
+import { Stack, IconButton, Tooltip, Typography, Box, Link } from '@mui/material';
 import PlaylistAddRoundedIcon from '@mui/icons-material/PlaylistAddRounded';
+import QueueMusicRoundedIcon from '@mui/icons-material/QueueMusicRounded';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import PauseRoundedIcon from '@mui/icons-material/PauseRounded';
 import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
@@ -10,99 +11,39 @@ import BookmarkBorderRoundedIcon from '@mui/icons-material/BookmarkBorderRounded
 import MediaCardShell from './MediaCardShell';
 import AddToPlaylistDialog from './AddToPlaylistDialog';
 import useSocialSong from '../store/hooks/useSocial';
+import { useDispatch } from 'react-redux';
+import { enqueueTrack } from '../store/slices/playerSlice';
 
-// Shared overlay-button styling for the three social actions. Extracted so the
-// like / save / playlist buttons stay visually identical without repeating the
-// sx block three times.
-const overlayBtnSx = (activeColor) => ({
-  bgcolor: 'rgba(0,0,0,0.45)',
-  color: activeColor || 'common.white',
-  backdropFilter: 'blur(4px)',
-  '&:hover': { bgcolor: 'rgba(0,0,0,0.65)', transform: 'scale(1.08)' },
-  transition: 'transform 0.15s ease, background-color 0.15s ease',
+const footerBtnSx = (activeColor) => ({
+  p: 0.5,
+  color: activeColor || 'text.secondary',
+  '&:hover': { color: activeColor || 'text.primary', bgcolor: 'action.hover' },
+  transition: 'color 0.15s ease, background-color 0.15s ease',
 });
 
-// A card for a SONG. Songs can be liked, saved, added to a playlist, and played.
-// All of that behaviour lives here; the shell just draws the frame. Contrast
-// AlbumCard, which is save + play only — the split is exactly so each card
-// carries only the actions its entity actually supports.
 export default function SongCard({
   songId,
   title,
   subtitle,
   imageUrl,
   seed,
+  artist,
+  album = null,          // { id, title } — renders a link row under the controls
   isPlaying = false,
   onTogglePlay,
   onClick,
+  onAlbumClick,          // (albumId) => void
+  onArtistClick,         // (artist)  => void
 }) {
+  const dispatch = useDispatch();
   const [playlistOpen, setPlaylistOpen] = useState(false);
-  const { liked, saved, busy, toggleLike, toggleSave } = useSocialSong(songId);
+  const { liked, saved, likeCount, busy, toggleLike, toggleSave } = useSocialSong(songId);
 
-  // Stop the card's onClick (navigate/play) firing when an overlay button is hit.
+  // Stop the card's onClick (navigate/play) firing when a control is hit.
   const swallow = (fn) => (e) => {
     e.stopPropagation();
     fn?.();
   };
-
-  const actions = (
-    <Stack
-      className="social-actions"
-      direction="row"
-      spacing={0.5}
-      sx={{
-        position: 'absolute',
-        left: 6,
-        top: 6,
-        // Like/save are STATE — they stay visible when already active even off
-        // hover. The playlist button is stateless, so it only shows on hover
-        // (via the shell's `:hover .social-actions` rule bringing the row to 1).
-        opacity: liked || saved ? 1 : 0,
-        transition: 'opacity 0.2s ease',
-      }}
-    >
-      <Tooltip title={liked ? 'Unlike' : 'Like'}>
-        <span>
-          <IconButton
-            size="small"
-            disabled={busy}
-            onClick={swallow(toggleLike)}
-            aria-label={liked ? `Unlike ${title}` : `Like ${title}`}
-            sx={overlayBtnSx(liked ? 'error.main' : undefined)}
-          >
-            {liked ? <FavoriteRoundedIcon fontSize="small" /> : <FavoriteBorderRoundedIcon fontSize="small" />}
-          </IconButton>
-        </span>
-      </Tooltip>
-
-      <Tooltip title={saved ? 'Remove from library' : 'Save to library'}>
-        <span>
-          <IconButton
-            size="small"
-            disabled={busy}
-            onClick={swallow(toggleSave)}
-            aria-label={saved ? `Remove ${title} from library` : `Save ${title} to library`}
-            sx={overlayBtnSx(saved ? 'primary.main' : undefined)}
-          >
-            {saved ? <BookmarkRoundedIcon fontSize="small" /> : <BookmarkBorderRoundedIcon fontSize="small" />}
-          </IconButton>
-        </span>
-      </Tooltip>
-
-      <Tooltip title="Add to playlist">
-        <span>
-          <IconButton
-            size="small"
-            onClick={swallow(() => setPlaylistOpen(true))}
-            aria-label={`Add ${title} to a playlist`}
-            sx={overlayBtnSx()}
-          >
-            <PlaylistAddRoundedIcon fontSize="small" />
-          </IconButton>
-        </span>
-      </Tooltip>
-    </Stack>
-  );
 
   const playButton = (
     <IconButton
@@ -110,27 +51,164 @@ export default function SongCard({
       onClick={swallow(onTogglePlay)}
       aria-label={isPlaying ? `Pause ${title}` : `Play ${title}`}
       sx={{
-        position: 'absolute', right: 8, bottom: 8,
-        bgcolor: 'primary.main', color: 'primary.contrastText',
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        bgcolor: 'primary.main',
+        color: 'primary.contrastText',
         opacity: isPlaying ? 1 : 0,
         transition: 'opacity 0.2s ease, transform 0.2s ease',
-        '&:hover': { bgcolor: 'primary.dark', transform: 'scale(1.06)' },
+        '&:hover': {
+          bgcolor: 'primary.dark',
+          transform: 'translate(-50%, -50%) scale(1.08)',
+        },
       }}
     >
       {isPlaying ? <PauseRoundedIcon /> : <PlayArrowRoundedIcon />}
     </IconButton>
   );
 
+  const footer = (
+    <Box sx={{ mt: 1 }}>
+      <Stack
+        direction="row"
+        spacing={0}
+        sx={{ justifyContent: 'center', alignItems: 'center' }}
+      >
+        <Tooltip title={liked ? 'Unlike' : 'Like'}>
+          <span>
+            <IconButton
+              size="small"
+              disabled={busy}
+              onClick={swallow(toggleLike)}
+              aria-label={liked ? `Unlike ${title}` : `Like ${title}`}
+              sx={footerBtnSx(liked ? 'error.main' : undefined)}
+            >
+              {liked
+                ? <FavoriteRoundedIcon fontSize="small" />
+                : <FavoriteBorderRoundedIcon fontSize="small" />}
+            </IconButton>
+          </span>
+        </Tooltip>
+
+        {/* Public like total. Hidden at zero — a "0" on every card is noise. */}
+        {likeCount > 0 && (
+          <Typography
+            variant="caption"
+            aria-label={`${likeCount} ${likeCount === 1 ? 'like' : 'likes'}`}
+            sx={{ color: 'text.secondary', fontWeight: 700, mr: 0.25 }}
+          >
+            {likeCount}
+          </Typography>
+        )}
+
+        <Tooltip title={saved ? 'Remove from library' : 'Save to library'}>
+          <span>
+            <IconButton
+              size="small"
+              disabled={busy}
+              onClick={swallow(toggleSave)}
+              aria-label={saved ? `Remove ${title} from library` : `Save ${title} to library`}
+              sx={footerBtnSx(saved ? 'primary.main' : undefined)}
+            >
+              {saved
+                ? <BookmarkRoundedIcon fontSize="small" />
+                : <BookmarkBorderRoundedIcon fontSize="small" />}
+            </IconButton>
+          </span>
+        </Tooltip>
+
+        <Tooltip title="Add to playlist">
+          <span>
+            <IconButton
+              size="small"
+              onClick={swallow(() => setPlaylistOpen(true))}
+              aria-label={`Add ${title} to a playlist`}
+              sx={footerBtnSx()}
+            >
+              <PlaylistAddRoundedIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+
+        <Tooltip title="Add to queue">
+          <span>
+            <IconButton
+              size="small"
+              onClick={swallow(() => dispatch(enqueueTrack({
+                id: songId,
+                title,
+                artist: artist ?? null,
+                coverUrl: imageUrl || null,
+              })))}
+              aria-label={`Add ${title} to queue`}
+              sx={footerBtnSx()}
+            >
+              <QueueMusicRoundedIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Stack>
+      {(album || artist?.username) && (
+        <Stack
+          direction="row"
+          spacing={0.5}
+          sx={{ justifyContent: 'center', alignItems: 'center', mt: 0.25 }}
+        >
+          {album && onAlbumClick && (
+            <Link
+              component="button"
+              variant="caption"
+              underline="hover"
+              onClick={swallow(() => onAlbumClick(album.id))}
+              sx={{
+                color: 'text.secondary',
+                maxWidth: 80,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {album.title}
+            </Link>
+          )}
+          {album && onAlbumClick && artist?.username && onArtistClick && (
+            <Typography variant="caption" color="text.disabled">·</Typography>
+          )}
+          {artist?.username && onArtistClick && (
+            <Link
+              component="button"
+              variant="caption"
+              underline="hover"
+              onClick={swallow(() => onArtistClick(artist))}
+              sx={{
+                color: 'text.secondary',
+                maxWidth: 80,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {artist.stageName ?? artist.username}
+            </Link>
+          )}
+        </Stack>
+      )}
+    </Box>
+  );
+
   return (
     <>
       <MediaCardShell
+        variant="song"
         title={title}
         subtitle={subtitle}
         imageUrl={imageUrl}
         seed={seed}
         onClick={onClick}
-        actions={actions}
         playButton={playButton}
+        footer={footer}
       />
       <AddToPlaylistDialog
         open={playlistOpen}

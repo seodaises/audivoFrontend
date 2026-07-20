@@ -8,6 +8,7 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import PublicRoundedIcon from '@mui/icons-material/PublicRounded';
 import { fetchPublicPlaylists } from '../api/playlist';
 import { PLAYLIST } from '../constants/route_constant';
+import SearchField from '../components/SearchField';
 
 // Same golden-angle cover gradient as PlaylistsPage / MediaCard, so a playlist
 // looks identical whether you find it in your own list or here in discovery.
@@ -61,20 +62,13 @@ export default function DiscoverPage() {
         </Typography>
       </Box>
 
-      <TextField
+      <SearchField
         fullWidth
-        size="small"
         placeholder="Search playlists by title…"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
+        onClear={() => setSearch('')}
         sx={{ mb: 3, maxWidth: 480 }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchRoundedIcon fontSize="small" />
-            </InputAdornment>
-          ),
-        }}
       />
 
       {err && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr('')}>{err}</Alert>}

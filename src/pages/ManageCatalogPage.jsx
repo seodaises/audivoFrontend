@@ -21,6 +21,7 @@ import AddGenreDialog from '../components/AddGenreDialog';
 import { useAuth } from '../store/hooks/useAuth';
 import { PERMISSIONS } from '../auth/permissions';
 import { fmtDuration, fmtCount, fmtDate } from '../utils/format';
+import SearchField from '../components/SearchField';
 
 const STATUS_OPTIONS = ['', 'draft', 'published', 'archived'];
 const statusColor = (s) =>
@@ -182,21 +183,12 @@ export default function ManageCatalogPage() {
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}
           sx={{ alignItems: { sm: 'center' } }}>
-          <TextField
-            size="small"
+          <SearchField
             placeholder="Search by title…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
             sx={{ width: { xs: '100%', sm: 240 } }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRoundedIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-              },
-            }}
           />
 
           <TextField select size="small" label="Status" value={status}

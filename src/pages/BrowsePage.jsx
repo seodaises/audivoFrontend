@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Box, Typography, Stack, TextField, InputAdornment, IconButton,
-  MenuItem, Alert, Skeleton, Chip, Divider, Link,
+  MenuItem, Alert, Skeleton, Chip, Divider, Tabs, Tab,
 } from '@mui/material';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
@@ -12,6 +12,7 @@ import SongCard from '../components/SongCard';
 import AlbumCard from '../components/AlbumCard';
 import { fetchSongs, fetchAlbums, fetchGenres, searchCatalog, fetchAlbum } from '../api/catalog';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
+import SearchField from '../components/SearchField';
 
 const fmtDuration = (secs) => {
   if (secs == null) return '—';
@@ -40,6 +41,7 @@ export default function BrowsePage() {
   const [genreId, setGenreId] = useState('');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  const [contentTab, setContentTab] = useState('albums');
 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -95,11 +97,6 @@ export default function BrowsePage() {
       dispatch(playFromQueue({ queue: songs.map(toTrack), index: idx }));
     }
   };
-
-  // Play a whole album from its card: fetch the album's published tracks, load
-  // them as the queue, and start at the top. The card can't do this itself — it
-  // only knows the album's id, not its tracklist — so the page owns the fetch.
-  // Failures are swallowed to a soft error rather than crashing the grid.
   const onAlbumPlay = async (album) => {
     try {
       const full = await fetchAlbum(album.id);
@@ -134,11 +131,11 @@ export default function BrowsePage() {
           </Typography>
         </Box>
 
-        <Stack direction="row" spacing={1.5} sx={{ width: { xs: '100%', sm: 'auto' } }}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ width: { xs: '100%', sm: 'auto' } }}>
           <TextField
             select size="small" label="Genre" value={genreId}
             onChange={(e) => setGenreId(e.target.value)}
-            disabled={showingSearch} sx={{ width: 160 }}
+            disabled={showingSearch} sx={{ width: { xs: '100%', sm: 160 } }}
           >
             <MenuItem value="">All genres</MenuItem>
             {genres.map((g) => (
@@ -146,26 +143,12 @@ export default function BrowsePage() {
             ))}
           </TextField>
 
-          <TextField
-            size="small" placeholder="Search songs, artists…"
-            value={search} onChange={(e) => setSearch(e.target.value)}
+          <SearchField
+            placeholder="Search songs, artists…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
             sx={{ width: { xs: '100%', sm: 260 } }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRoundedIcon fontSize="small" color="action" />
-                  </InputAdornment>
-                ),
-                endAdornment: search ? (
-                  <InputAdornment position="end">
-                    <IconButton size="small" aria-label="clear search" onClick={() => setSearch('')}>
-                      <CloseRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </InputAdornment>
-                ) : null,
-              },
-            }}
           />
         </Stack>
       </Stack>
@@ -192,103 +175,93 @@ export default function BrowsePage() {
 
       {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
 
-      {/* Albums row */}
-      <Typography variant="h6" sx={{ fontWeight: 700, mt: 2, mb: 1 }}>Albums</Typography>
-      {loading ? (
-        <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} variant="rounded" width={180} height={230} sx={{ borderRadius: 3 }} />
-          ))}
+      <Tabs
+        value={contentTab}
+        onChange={(_, value) => setContentTab(value)}
+        sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Tab value="albums" label="Albums" sx={{ textTransform: 'none', fontWeight: 700 }} />
+        <Tab value="songs" label="Songs" sx={{ textTransform: 'none', fontWeight: 700 }} />
+      </Tabs>
+
+      {contentTab === 'albums' ? (
+        <Box>
+          <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>Albums</Typography>
+          {loading ? (
+            <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} variant="rounded" width={180} height={230} sx={{ borderRadius: 3 }} />
+              ))}
+            </Box>
+          ) : albums.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              {showingSearch ? 'No matching albums.' : 'No published albums yet.'}
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+              {albums.map((a) => (
+                <AlbumCard
+                  key={a.id}
+                  albumId={a.id}
+                  seed={a.id}
+                  imageUrl={a.coverUrl || undefined}
+                  title={a.title}
+                  subtitle={a.artist?.stageName ?? (a.isSingle ? 'Single' : 'Album')}
+                  onClick={() => navigate(`/album/${a.id}`)}
+                  onPlayAlbum={() => onAlbumPlay(a)}
+                />
+              ))}
+            </Box>
+          )}
         </Box>
-      ) : albums.length === 0 ? (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          {showingSearch ? 'No matching albums.' : 'No published albums yet.'}
-        </Typography>
       ) : (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-          {albums.map((a) => (
-            <AlbumCard
-              key={a.id}
-              albumId={a.id}
-              seed={a.id}
-              imageUrl={a.coverUrl || undefined}
-              title={a.title}
-              subtitle={a.artist?.stageName ?? (a.isSingle ? 'Single' : 'Album')}
-              onClick={() => navigate(`/album/${a.id}`)}
-              onPlayAlbum={() => onAlbumPlay(a)}
-            />
-          ))}
+        <Box>
+          <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>Songs</Typography>
+          {!loading && !err && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+              {songs.length} {songs.length === 1 ? 'track' : 'tracks'}
+              {showingSearch ? ` matching “${debouncedSearch}”` : ''}
+            </Typography>
+          )}
+
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+            {loading ? (
+              Array.from({ length: 10 }).map((_, i) => (
+                <Box key={i} sx={{ width: 180 }}>
+                  <Skeleton variant="rounded" height={180} sx={{ borderRadius: 3, mb: 1 }} />
+                  <Skeleton width="80%" />
+                  <Skeleton width="55%" />
+                </Box>
+              ))
+            ) : songs.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
+                {showingSearch
+                  ? `No tracks match “${debouncedSearch}”. Try another search.`
+                  : 'No published tracks yet.'}
+              </Typography>
+            ) : (
+              songs.map((s, idx) => (
+                <SongCard
+                  key={s.id}
+                  songId={s.id}
+                  seed={s.id}
+                  imageUrl={s.coverUrl || undefined}
+                  title={s.title}
+                  subtitle={`${s.artist?.stageName ?? 'Unknown artist'}${
+                    s.durationSeconds != null ? ` \u00b7 ${fmtDuration(s.durationSeconds)}` : ''
+                  }`}
+                  artist={s.artist}
+                  album={s.album ?? null}
+                  isPlaying={playingId === s.id}
+                  onTogglePlay={() => onCardPlay(s, idx)}
+                  onAlbumClick={(albumId) => navigate(`/album/${albumId}`)}
+                  onArtistClick={(a) => navigate(`/artist/${a.username}`)}
+                />
+              ))
+            )}
+          </Box>
         </Box>
       )}
-
-      <Divider sx={{ mb: 2 }} />
-
-      {/* Songs */}
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>Songs</Typography>
-      {!loading && !err && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-          {songs.length} {songs.length === 1 ? 'track' : 'tracks'}
-          {showingSearch ? ` matching “${debouncedSearch}”` : ''}
-        </Typography>
-      )}
-
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-        {loading ? (
-          Array.from({ length: 10 }).map((_, i) => (
-            <Box key={i} sx={{ width: 180 }}>
-              <Skeleton variant="rounded" height={180} sx={{ borderRadius: 3, mb: 1 }} />
-              <Skeleton width="80%" />
-              <Skeleton width="55%" />
-            </Box>
-          ))
-        ) : songs.length === 0 ? (
-          <Typography variant="body2" color="text.secondary" sx={{ py: 4 }}>
-            {showingSearch
-              ? `No tracks match “${debouncedSearch}”. Try another search.`
-              : 'No published tracks yet.'}
-          </Typography>
-        ) : (
-          songs.map((s, idx) => (
-            <Box key={s.id} sx={{ width: 180 }}>
-              <SongCard
-                songId={s.id}
-                seed={s.id}
-                imageUrl={s.coverUrl || undefined}
-                title={s.title}
-                subtitle={`${s.artist?.stageName ?? 'Unknown artist'}${
-                  s.durationSeconds != null ? ` · ${fmtDuration(s.durationSeconds)}` : ''
-                }`}
-                isPlaying={playingId === s.id}
-                onTogglePlay={() => onCardPlay(s, idx)}
-              />
-              {/* Clickable album + artist links under each song card */}
-              <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, px: 0.5, flexWrap: 'wrap' }}>
-                {s.album && (
-                  <Link
-                    component="button" variant="caption" underline="hover"
-                    onClick={() => navigate(`/album/${s.album.id}`)}
-                    sx={{ color: 'text.secondary' }}
-                  >
-                    {s.album.title}
-                  </Link>
-                )}
-                {s.album && s.artist?.username && (
-                  <Typography variant="caption" color="text.disabled">·</Typography>
-                )}
-                {s.artist?.username && (
-                  <Link
-                    component="button" variant="caption" underline="hover"
-                    onClick={() => navigate(`/artist/${s.artist.username}`)}
-                    sx={{ color: 'text.secondary' }}
-                  >
-                    {s.artist.stageName}
-                  </Link>
-                )}
-              </Stack>
-            </Box>
-          ))
-        )}
-      </Box>
     </Box>
   );
 }

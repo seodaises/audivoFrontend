@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box, Typography, Stack, Alert, Skeleton, Avatar, Chip, Divider, Button,
+  Box, Typography, Stack, Alert, Skeleton, Avatar, Chip, Button,
   List, ListItemButton, ListItemAvatar, ListItemText, IconButton, Tooltip, Link,
   CircularProgress, TextField, InputAdornment, ToggleButton, ToggleButtonGroup,
+  Tabs, Tab,
   alpha,
 } from '@mui/material';
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
@@ -19,13 +20,14 @@ import QueueMusicRoundedIcon from '@mui/icons-material/QueueMusicRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
 import { useSelector, useDispatch } from 'react-redux';
-import MediaCard from '../components/MediaCard';
+import MediaCardShell from '../components/MediaCardShell';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
 import { fetchMyCatalog, setSongStatus, setAlbumStatus, deleteSong, deleteAlbum } from '../api/catalog';
 import DeleteCatalogItemDialog from '../components/DeleteCatalogItemDialog';
 import { UPLOAD, BROWSE } from '../constants/route_constant';
 import { useAuth } from '../store/hooks/useAuth';
 import { PERMISSIONS } from '../auth/permissions';
+import SearchField from '../components/SearchField';
 
 const fmtDuration = (secs) => {
   if (secs == null) return '—';
@@ -73,6 +75,12 @@ export default function MyCatalogPage() {
   // being fetched, so it's instant on every keystroke.
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // '' = all
+
+  // Which half of the catalog is showing. Albums first — an artist's mental
+  // model of their own catalog is usually album-led, and songs are reachable
+  // from inside an album anyway. Purely local view state: both lists are
+  // already in memory, so switching tabs costs nothing and hits no endpoint.
+  const [contentTab, setContentTab] = useState('albums');
 
   // upload_songs is the Artist permission. Gate on the PERMISSION, not the role
   // name — the permission list comes from the DB via /me, so a new role that
@@ -361,21 +369,12 @@ export default function MyCatalogPage() {
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}
           sx={{ alignItems: { sm: 'center' } }}>
-          <TextField
-            size="small"
+          <SearchField
             placeholder="Search your catalog…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
             sx={{ width: { xs: '100%', sm: 240 } }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRoundedIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-              },
-            }}
           />
 
           <ToggleButtonGroup
@@ -400,14 +399,33 @@ export default function MyCatalogPage() {
         </Stack>
       </Stack>
 
-      {/* Albums. The count shows filtered/total when a filter is active, so it's
-          obvious you're looking at a subset and not a shrinking catalog. */}
-      <Typography variant="h6" sx={{ fontWeight: 700, mt: 3, mb: 1 }}>
-        Albums ({isFiltered ? `${albums.length} of ${data.albums.length}` : data.albums.length})
-      </Typography>
+      {/* Counts live in the tab labels so the filtered/total split is visible
+          on BOTH tabs at once — you can see the songs tab has matches without
+          leaving the albums tab. */}
+      <Tabs
+        value={contentTab}
+        onChange={(_, value) => setContentTab(value)}
+        sx={{ mt: 3, mb: 2, borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Tab
+          value="albums"
+          label={`Albums (${isFiltered ? `${albums.length} of ${data.albums.length}` : data.albums.length})`}
+          sx={{ textTransform: 'none', fontWeight: 700 }}
+        />
+        <Tab
+          value="songs"
+          label={`Songs (${isFiltered ? `${songs.length} of ${data.songs.length}` : data.songs.length})`}
+          sx={{ textTransform: 'none', fontWeight: 700 }}
+        />
+      </Tabs>
+
+      {contentTab === 'albums' && (
+        <>
       {albums.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {isFiltered ? 'No albums match your filters.' : 'No albums yet.'}
+          {isFiltered
+            ? `No albums match your filters.${songs.length > 0 ? ` ${songs.length} song${songs.length === 1 ? '' : 's'} matched — check the Songs tab.` : ''}`
+            : 'No albums yet.'}
         </Typography>
       ) : (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
@@ -429,12 +447,12 @@ export default function MyCatalogPage() {
                   '&:hover': { borderColor: (t) => alpha(t.palette.text.primary, 0.22) },
                 }}
               >
-                <MediaCard
+                <MediaCardShell
+                  bare
+                  variant="album"
                   seed={a.id}
                   imageUrl={a.coverUrl || undefined}
                   title={a.title}
-                  hideText
-                  bare
                   onClick={() => navigate(`/album/${a.id}`)}
                 />
 
@@ -522,15 +540,16 @@ export default function MyCatalogPage() {
           })}
         </Box>
       )}
+        </>
+      )}
 
-      <Divider sx={{ mb: 1 }} />
-
-      <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
-        Songs ({isFiltered ? `${songs.length} of ${data.songs.length}` : data.songs.length})
-      </Typography>
+      {contentTab === 'songs' && (
+        <>
       {songs.length === 0 ? (
         <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-          {isFiltered ? 'No songs match your filters.' : 'No songs yet.'}
+          {isFiltered
+            ? `No songs match your filters.${albums.length > 0 ? ` ${albums.length} album${albums.length === 1 ? '' : 's'} matched — check the Albums tab.` : ''}`
+            : 'No songs yet.'}
         </Typography>
       ) : (
         <List>
@@ -564,6 +583,9 @@ export default function MyCatalogPage() {
           })}
         </List>
       )}
+        </>
+      )}
+
       <DeleteCatalogItemDialog
       requirePassword
         open={Boolean(pendingDelete)}

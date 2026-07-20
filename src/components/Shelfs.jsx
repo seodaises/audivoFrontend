@@ -14,12 +14,6 @@ export default function Shelf({ title, items }) {
           gap: 2,
           overflowX: "auto",
           pb: 1,                        // room so hover-lift isn't clipped
-          scrollbarWidth: "thin",       // slim scrollbar (Firefox)
-          "&::-webkit-scrollbar": { height: 8 },
-          "&::-webkit-scrollbar-thumb": {
-            bgcolor: "action.disabled",
-            borderRadius: 4,
-          },
         }}
       >
         {items.map((item) => (

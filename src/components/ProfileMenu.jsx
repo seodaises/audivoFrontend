@@ -5,10 +5,12 @@ import {
 } from '@mui/material';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import LockResetRoundedIcon from '@mui/icons-material/LockResetRounded';
+import MailOutlineRoundedIcon from '@mui/icons-material/MailOutlineRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { useAuth } from '../store/hooks/useAuth';
 import ProfileDialog from './ProfileDialog';
 import ChangePasswordDialog from './ChangePasswordDialog';
+import ContactDialog from './ContactDialog';
 import LogoutConfirmDialog from './LogoutConfirmDialog';
 
 export default function ProfileMenu() {
@@ -16,6 +18,7 @@ export default function ProfileMenu() {
   const [anchor, setAnchor] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
   const [logoutOpen, setLogoutOpen] = useState(false);
 
   if (!user) return null;
@@ -26,6 +29,7 @@ export default function ProfileMenu() {
   // Each item closes the menu first, then opens its dialog.
   const openProfile = () => { closeMenu(); setProfileOpen(true); };
   const openPassword = () => { closeMenu(); setPasswordOpen(true); };
+  const openContact = () => { closeMenu(); setContactOpen(true); };
   const openLogout = () => { closeMenu(); setLogoutOpen(true); };
 
   const initial = (user.name || user.email || '?').charAt(0).toUpperCase();
@@ -73,6 +77,10 @@ export default function ProfileMenu() {
           <ListItemIcon><LockResetRoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Change password</ListItemText>
         </MenuItem>
+        <MenuItem onClick={openContact}>
+          <ListItemIcon><MailOutlineRoundedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>Contact us</ListItemText>
+        </MenuItem>
         <Divider />
         <MenuItem onClick={openLogout}>
           <ListItemIcon><LogoutRoundedIcon fontSize="small" color="error" /></ListItemIcon>
@@ -82,6 +90,7 @@ export default function ProfileMenu() {
 
       <ProfileDialog open={profileOpen} onClose={() => setProfileOpen(false)} />
       <ChangePasswordDialog open={passwordOpen} onClose={() => setPasswordOpen(false)} />
+      <ContactDialog open={contactOpen} onClose={() => setContactOpen(false)} />
       <LogoutConfirmDialog open={logoutOpen} onClose={() => setLogoutOpen(false)} />
     </>
   );

@@ -9,15 +9,22 @@ import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
 import BookmarkRoundedIcon from '@mui/icons-material/BookmarkRounded';
 import LibraryMusicRoundedIcon from '@mui/icons-material/LibraryMusicRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
+import RepeatRoundedIcon from '@mui/icons-material/RepeatRounded';
+import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import { useSelector, useDispatch } from 'react-redux';
 import SongCard from '../components/SongCard';
 import AlbumCard from '../components/AlbumCard';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
 import {
   fetchLikedSongs, fetchSavedSongs, fetchSavedAlbums, fetchFollowedArtists,
+  fetchRecentlyPlayed, fetchMostPlayed, fetchMyComments,
 } from '../api/social';
+import { deleteComment } from '../api/comments';
 import { fetchAlbum } from '../api/catalog';
 import { BROWSE } from '../constants/route_constant';
+import SearchField from '../components/SearchField';
 
 const fmtDuration = (secs) => {
   if (secs == null) return '—';
@@ -35,16 +42,6 @@ const fmtDate = (iso) => {
 
 const matches = (haystack, needle) =>
   String(haystack || '').toLowerCase().includes(needle);
-
-// Each tab declares its KIND, which drives three things: what it fetches, how it
-// searches, and which card it renders. The old page assumed every tab was a song
-// grid; now the tab config carries that assumption explicitly instead of baking
-// it into the render. That is the whole reason for the `kind` field — a mentor
-// reading this should see immediately that "Saved" and "Following" are not songs.
-//
-//   songs    -> one fetch, SongCard grid, playable queue
-//   mixed    -> two fetches (songs + albums) merged, SongCard + AlbumCard
-//   artists  -> one fetch, avatar tiles that navigate to the artist page
 const TABS = [
   {
     key: 'liked',
@@ -72,6 +69,32 @@ const TABS = [
     emptyTitle: 'Not following anyone yet',
     emptyBody: 'Follow an artist and they will appear here.',
   },
+  {
+    key: 'recent',
+    label: 'Recently played',
+    kind: 'history',
+    icon: <HistoryRoundedIcon fontSize="small" />,
+    source: 'queue',
+    emptyTitle: 'Nothing played yet',
+    emptyBody: 'Songs you listen to show up here, most recent first.',
+  },
+  {
+    key: 'mostPlayed',
+    label: 'Most played',
+    kind: 'history',
+    icon: <RepeatRoundedIcon fontSize="small" />,
+    source: 'queue',
+    emptyTitle: 'No top tracks yet',
+    emptyBody: 'The songs you play the most will be ranked here.',
+  },
+  {
+    key: 'myComments',
+    label: 'My comments',
+    kind: 'comments',
+    icon: <ChatBubbleOutlineRoundedIcon fontSize="small" />,
+    emptyTitle: 'No comments yet',
+    emptyBody: 'Comments you leave on songs are collected here.',
+  },
 ];
 
 export default function LibraryPage() {
@@ -91,12 +114,6 @@ export default function LibraryPage() {
   const active = TABS[tab];
   const rows = rowsByTab[active.key];
   const loading = loadingTab === active.key;
-
-  // One loader for every tab. The `kind` decides the fetch strategy; the rows it
-  // stores are already normalised into a single array the render can walk. For
-  // the mixed tab, songs and albums are tagged with a `_type` so the render knows
-  // which card to draw — without that tag the two shapes are ambiguous (both have
-  // id/title/coverUrl).
   const load = useCallback(async (tabDef, { force = false } = {}) => {
     if (!force && rowsByTab[tabDef.key]) return;
     setLoadingTab(tabDef.key);
@@ -107,22 +124,25 @@ export default function LibraryPage() {
         const res = await fetchLikedSongs({ page: 1, limit: 100 });
         items = (res.items || []).map((s) => ({ ...s, _type: 'song' }));
       } else if (tabDef.kind === 'mixed') {
-        // Two independent lists. Fetch in parallel — neither depends on the other,
-        // so serialising them would just double the wait for no reason.
         const [songsRes, albumsRes] = await Promise.all([
           fetchSavedSongs({ page: 1, limit: 100 }),
           fetchSavedAlbums({ page: 1, limit: 100 }),
         ]);
         const songs = (songsRes.items || []).map((s) => ({ ...s, _type: 'song' }));
         const albums = (albumsRes.items || []).map((a) => ({ ...a, _type: 'album' }));
-        // Albums first, then songs — a small, predictable ordering so the grid
-        // does not reshuffle between loads. (The backend gives each list its own
-        // "newest saved first"; we are only deciding how the two lists sit next
-        // to each other, not re-sorting within them.)
         items = [...albums, ...songs];
       } else if (tabDef.kind === 'artists') {
         const res = await fetchFollowedArtists({ page: 1, limit: 100 });
         items = (res.items || []).map((a) => ({ ...a, _type: 'artist' }));
+      } else if (tabDef.kind === 'history') {
+        // Two history tabs share this branch; the key picks the endpoint.
+        const res = tabDef.key === 'mostPlayed'
+          ? await fetchMostPlayed({ limit: 50 })
+          : await fetchRecentlyPlayed({ limit: 50 });
+        items = (res.items || []).map((s) => ({ ...s, _type: 'song' }));
+      } else if (tabDef.kind === 'comments') {
+        const res = await fetchMyComments({ page: 1, limit: 100 });
+        items = (res.items || []).map((c) => ({ ...c, _type: 'comment' }));
       }
       setRowsByTab((prev) => ({ ...prev, [tabDef.key]: items }));
     } catch (e) {
@@ -136,22 +156,16 @@ export default function LibraryPage() {
 
   const needle = search.trim().toLowerCase();
 
-  // Search reads different fields per type: a song matches on title or artist, an
-  // album on title or artist, an artist on stage name. Folding these into one
-  // predicate keeps the search box working across a mixed grid.
   const visible = useMemo(() => {
     const all = rows || [];
     if (!needle) return all;
     return all.filter((it) => {
       if (it._type === 'artist') return matches(it.stageName, needle);
+      if (it._type === 'comment') return matches(it.body, needle) || matches(it.song?.title, needle);
       return matches(it.title, needle) || matches(it.artist?.stageName, needle);
     });
   }, [rows, needle]);
 
-  // Only the songs currently visible form the queue, and only real songs — an
-  // album tile in the mixed grid is not a queue entry, it plays via its own
-  // handler. So the index passed to playFromQueue must be the index WITHIN the
-  // songs, not within the mixed array.
   const playableSongs = useMemo(
     () => visible.filter((it) => it._type === 'song'),
     [visible]
@@ -174,10 +188,6 @@ export default function LibraryPage() {
       index: idx < 0 ? 0 : idx,
     }));
   };
-
-  // Playing a saved album means loading its published tracklist into the queue —
-  // the same move ArtistPage makes. The library only holds album metadata, not
-  // each album's songs, so we fetch them on demand.
   const onAlbumPlay = async (album) => {
     try {
       const full = await fetchAlbum(album.id);
@@ -196,9 +206,22 @@ export default function LibraryPage() {
     }
   };
 
-  // A saved list can change on another page (unsave a song from Browse, unfollow
-  // from an artist page). Dropping the cache on window focus forces a refetch when
-  // the user comes back, so the library never shows a stale row.
+  const [deletingId, setDeletingId] = useState(null);
+  const onDeleteMyComment = async (comment) => {
+    setDeletingId(comment.id);
+    try {
+      await deleteComment(comment.id);
+      setRowsByTab((prev) => ({
+        ...prev,
+        myComments: (prev.myComments || []).filter((c) => c.id !== comment.id),
+      }));
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   useEffect(() => {
     const onFocus = () => setRowsByTab({});
     window.addEventListener('focus', onFocus);
@@ -243,20 +266,11 @@ export default function LibraryPage() {
           ))}
         </Tabs>
 
-        <TextField
-          size="small"
+        <SearchField
           placeholder={`Search ${active.label.toLowerCase()}…`}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchRoundedIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            },
-          }}
+          onClear={() => setSearch('')}
           sx={{ minWidth: { sm: 260 } }}
         />
       </Stack>
@@ -348,7 +362,7 @@ export default function LibraryPage() {
 
               if (it._type === 'album') {
                 return (
-                  <Box key={`album-${it.id}`} sx={{ width: 180 }}>
+                  <Box key={`album-${it.id}`}>
                     <AlbumCard
                       albumId={it.id}
                       seed={it.id}
@@ -365,6 +379,59 @@ export default function LibraryPage() {
                 );
               }
 
+              if (it._type === 'comment') {
+                return (
+                  <Box
+                    key={`comment-${it.id}`}
+                    sx={{
+                      width: '100%',
+                      p: 2,
+                      borderRadius: 3,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      display: 'flex',
+                      gap: 2,
+                      alignItems: 'flex-start',
+                    }}
+                  >
+                    <Box sx={{ minWidth: 0, flexGrow: 1 }}>
+                      <Typography variant="body2" sx={{ mb: 0.5 }}>
+                        {it.body}
+                      </Typography>
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
+                        {it.song?.title && (
+                          <Link
+                            component="button"
+                            variant="caption"
+                            onClick={() => it.song?.id && navigate(`/album/${it.song.albumId}`)}
+                            sx={{ fontWeight: 600 }}
+                          >
+                            on “{it.song.title}”
+                          </Link>
+                        )}
+                        <Typography variant="caption">
+                          {fmtDate((it.createdAt || '').slice(0, 10)) || ''}
+                        </Typography>
+                        {it.isHidden && (
+                          <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 600 }}>
+                            · removed by moderator
+                          </Typography>
+                        )}
+                      </Stack>
+                    </Box>
+                    <Button
+                      size="small"
+                      color="error"
+                      startIcon={<DeleteOutlineRoundedIcon />}
+                      disabled={deletingId === it.id}
+                      onClick={() => onDeleteMyComment(it)}
+                    >
+                      {deletingId === it.id ? 'Deleting…' : 'Delete'}
+                    </Button>
+                  </Box>
+                );
+              }
+
               // song
               return (
                 <Box key={`song-${it.id}`} sx={{ width: 180 }}>
@@ -376,6 +443,7 @@ export default function LibraryPage() {
                     subtitle={`${it.artist?.stageName ?? 'Unknown artist'}${
                       it.durationSeconds != null ? ` · ${fmtDuration(it.durationSeconds)}` : ''
                     }`}
+                    artist={it.artist}
                     isPlaying={playingId === it.id}
                     onTogglePlay={() => onSongPlay(it)}
                   />
