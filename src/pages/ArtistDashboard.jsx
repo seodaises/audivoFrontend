@@ -20,6 +20,7 @@ import { useAuth } from '../store/hooks/useAuth';
 import { fetchMyCatalog, setSongStatus } from '../api/catalog';
 import { UPLOAD, MY_CATALOG } from '../constants/route_constant';
 import GenrePlaysChart from '../components/GenrePlaysChart';
+import ReleaseCountdown from '../components/ReleaseCountdown';
 
 // Only the first few drafts show here — this is a nudge, not a second Library.
 const DRAFT_PREVIEW_LIMIT = 5;
@@ -63,11 +64,6 @@ function StatCard({ icon, label, value, tone }) {
   );
 }
 
-// Deliberately the SAME dimensions as AdminDashboard's ActionCard, not the wide
-// hero cards this page used to have. These are rail items now — a narrow column of
-// links, sized to be scanned. The old three-across layout was the reason the page
-// looked abandoned: three cards spanning the full width and then nothing beneath
-// them is a landing page, not a dashboard.
 function ActionCard({ icon, title, description, onClick }) {
   return (
     <Paper
@@ -95,10 +91,6 @@ function ActionCard({ icon, title, description, onClick }) {
   );
 }
 
-// A highlight card for one standout song — "most played" or "most liked". It's a
-// celebration tile, not a control: it names the metric, the song, and the number,
-// and stops there. When the catalog has no qualifying song (nobody's played or
-// liked anything yet), it shows an encouraging empty state instead of a blank.
 function TopSongCard({ icon, label, song, metricValue, metricNoun, accent = 'primary' }) {
   return (
     <Paper
@@ -177,11 +169,11 @@ export default function ArtistDashboard() {
     return (
       <Box>
         <Skeleton width="35%" height={44} sx={{ mb: 3 }} />
-        <Stack direction="row" spacing={2} sx={{ mb: 4 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 4 }}>
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} variant="rounded" width={180} height={92} sx={{ borderRadius: 3 }} />
           ))}
-        </Stack>
+        </Box>
         <Skeleton variant="rounded" height={220} sx={{ borderRadius: 3 }} />
       </Box>
     );
@@ -214,16 +206,8 @@ export default function ArtistDashboard() {
   const drafts = songs.filter((s) => s.status === 'draft');
   const archived = songs.filter((s) => s.status === 'archived').length;
 
-  // Catalog-wide play total. Every song carries its own playCount, so the total is
-  // just their sum — no separate endpoint. Archived plays count too: they're real
-  // listens that happened, not erased by a later archive.
   const totalPlays = songs.reduce((sum, s) => sum + (s.playCount || 0), 0);
 
-  // Top performers. We pick the single most-played and most-liked song across the
-  // whole catalog. `reduce` with a null seed handles the empty-catalog case (no
-  // songs -> null -> the card renders its empty state instead of crashing on
-  // undefined). Ties resolve to whichever song reduce sees first; for a "your top
-  // song" nudge that's fine — it's a highlight, not a leaderboard.
   const pickTop = (key) =>
     songs.reduce((best, s) => {
       const v = s[key] || 0;
@@ -250,6 +234,10 @@ export default function ArtistDashboard() {
 
   const isVerified = profile?.isVerified;
   const name = user?.name || profile?.stageName || 'there';
+
+  const nextScheduled = albums
+    .filter((a) => a.status === 'scheduled' && a.releaseAt && new Date(a.releaseAt).getTime() > Date.now())
+    .sort((a, b) => new Date(a.releaseAt) - new Date(b.releaseAt))[0] || null;
 
   return (
     <Box sx={{ pb: 4 }}>
@@ -303,9 +291,6 @@ export default function ArtistDashboard() {
         <StatCard icon={<AlbumRoundedIcon />} label="Albums" value={albums.length} />
       </Box>
 
-      {/* Two highlight cards: your best-performing song by each measure. Only shown
-          once there's a catalog to have a "top" song in — an artist staring at an
-          empty studio doesn't need two cards telling them they have no plays. */}
       {songs.length > 0 && (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 4 }}>
           <TopSongCard
@@ -327,9 +312,6 @@ export default function ArtistDashboard() {
         </Box>
       )}
 
-      {/* Two columns, mirroring AdminDashboard exactly: content left, action rail
-          right. The two dashboards are now the same PAGE with different data, which
-          is the point — a user who learns one has learned the other. */}
       <Box
         sx={{
           display: 'grid',
@@ -416,8 +398,11 @@ export default function ArtistDashboard() {
           </Box>
         </Stack>
 
-        {/* RIGHT — the action rail. */}
         <Stack spacing={2} sx={{ minWidth: 0 }}>
+          {nextScheduled && (
+            <ReleaseCountdown releaseAt={nextScheduled.releaseAt} title={nextScheduled.title} />
+          )}
+
           <Typography variant="h6" sx={{ fontWeight: 700 }}>Quick actions</Typography>
           <ActionCard
             icon={<CloudUploadRoundedIcon />}

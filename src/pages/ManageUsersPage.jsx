@@ -11,6 +11,7 @@ import { useAuth } from '../store/hooks/useAuth';
 import SetUserStatusDialog from '../components/SetUserStatusDialog';
 import DeleteUserDialog from '../components/DeleteUserDialog';
 import { fmtRelative } from '../utils/format';
+import SearchField from '../components/SearchField';
 
 // Role name -> level, so the UI can apply the same strict-higher (>) rule the
 // backend enforces: you only get actionable controls for users below you.
@@ -146,28 +147,12 @@ export default function ManageUsersPage() {
         }}
       >
         <Typography variant="h4" sx={{ fontWeight: 800 }}>Manage users</Typography>
-        <TextField
-          size="small"
+        <SearchField
           placeholder="Search name, username, or email"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onClear={() => setSearch('')}
           sx={{ width: { xs: '100%', sm: 320 } }}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchRoundedIcon fontSize="small" color="action" />
-                </InputAdornment>
-              ),
-              endAdornment: search ? (
-                <InputAdornment position="end">
-                  <IconButton size="small" aria-label="clear search" onClick={() => setSearch('')}>
-                    <CloseRoundedIcon fontSize="small" />
-                  </IconButton>
-                </InputAdornment>
-              ) : null,
-            },
-          }}
         />
       </Stack>
 

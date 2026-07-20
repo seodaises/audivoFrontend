@@ -1,4 +1,4 @@
-import { AppBar, Toolbar, Box, Typography, IconButton, Stack, Button, Chip, Tooltip } from '@mui/material';
+import { AppBar, Toolbar, Box, Typography, IconButton, Stack, Button, Chip, Tooltip, useTheme, useMediaQuery } from '@mui/material';
 import MusicNoteRoundedIcon from '@mui/icons-material/MusicNoteRounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
 import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
@@ -10,11 +10,19 @@ import { useSidebar } from '../../store/hooks/useSidebar';
 import { useAuth } from '../../store/hooks/useAuth';
 import { LOGIN } from '../../constants/route_constant';
 
-export default function Header() {
+export default function Header({ onOpenMobileNav }) {
   const { mode, toggle } = useColorMode();
   const { sidebarHidden, toggleSidebar } = useSidebar();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up('md'));
+
+  const handleClick = () => {
+    if (isDesktop) toggleSidebar();
+    else onOpenMobileNav?.();
+  };
+  const label = isDesktop ? (sidebarHidden ? 'Show sidebar' : 'Hide sidebar') : 'Open menu';
 
   return (
     <AppBar position="fixed" elevation={0} color="default"
@@ -24,17 +32,20 @@ export default function Header() {
         bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(18,18,18,0.8)' : 'rgba(255,255,255,0.8)'),
       }}>
       <Toolbar sx={{ gap: 1 }}>
-        {/* Sidebar toggle — only meaningful when logged in (md+ where the drawer lives) */}
+        {/* Sidebar toggle on desktop, menu-open on mobile — visible at every
+            width now, since a phone with no button and no drawer had no way
+            to navigate at all. */}
         {user && (
-          <Tooltip title={sidebarHidden ? 'Show sidebar' : 'Hide sidebar'}>
+          <Tooltip title={label}>
             <IconButton
-              onClick={toggleSidebar}
+              onClick={handleClick}
               color="inherit"
               edge="start"
-              aria-label={sidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
-              sx={{ display: { xs: 'none', md: 'inline-flex' } }}
+              aria-label={label}
             >
-              {sidebarHidden ? <MenuRoundedIcon /> : <MenuOpenRoundedIcon />}
+              {isDesktop
+                ? (sidebarHidden ? <MenuRoundedIcon /> : <MenuOpenRoundedIcon />)
+                : <MenuRoundedIcon />}
             </IconButton>
           </Tooltip>
         )}

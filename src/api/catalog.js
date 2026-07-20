@@ -40,6 +40,31 @@ export function fetchArtists({ page = 1, limit = 20 } = {}) {
   return api(`/catalog/artists?${params.toString()}`).then((res) => res.data);
 }
 
+// ---- Trending (30-day weighted window) ----
+// score = plays + (2 x likes) + (3 x saves). Self-plays, unpublished content and
+// tombstoned artists are excluded server-side, so these can be rendered as-is.
+// Rows come back in the SAME shape as browseSongs/Albums/Artists, plus
+// { rank, score, plays, likes|saves|follows } — so SongCard/AlbumCard bind with
+// no adapter.
+
+// GET /catalog/trending/songs?limit=
+// -> { songs: [...], window: { days, since } }
+export function fetchTrendingSongs({ limit = 10 } = {}) {
+  return api(`/catalog/trending/songs?limit=${limit}`).then((res) => res.data);
+}
+
+// GET /catalog/trending/albums?limit=
+// -> { albums: [...], window: { days, since } }
+export function fetchTrendingAlbums({ limit = 10 } = {}) {
+  return api(`/catalog/trending/albums?limit=${limit}`).then((res) => res.data);
+}
+
+// GET /catalog/trending/artists?limit=
+// -> { artists: [...], window: { days, since } }
+export function fetchTrendingArtists({ limit = 10 } = {}) {
+  return api(`/catalog/trending/artists?limit=${limit}`).then((res) => res.data);
+}
+
 // GET /catalog/search?q= -> { query, songs, albums, artists }
 export function searchCatalog(q) {
   const params = new URLSearchParams({ q });
@@ -116,6 +141,24 @@ export function setAlbumStatus(albumId, status) {
   return api(`/albums/${albumId}/status`, {
     method: 'PATCH',
     body: { status },
+  }).then((res) => res.data);
+}
+
+// PATCH /albums/:id/schedule { releaseAt }
+// releaseAt MUST be a full ISO string with timezone info (e.g. from
+// Date.prototype.toISOString()), so the server stores the correct UTC instant
+// and the album fires at the exact local time the artist picked.
+export function scheduleRelease(albumId, releaseAt) {
+  return api(`/albums/${albumId}/schedule`, {
+    method: 'PATCH',
+    body: { releaseAt },
+  }).then((res) => res.data);
+}
+
+// DELETE /albums/:id/schedule  — cancel a pending scheduled release (-> draft)
+export function cancelSchedule(albumId) {
+  return api(`/albums/${albumId}/schedule`, {
+    method: 'DELETE',
   }).then((res) => res.data);
 }
 

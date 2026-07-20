@@ -20,5 +20,51 @@ export const getTheme = (mode) =>
     },
     components: {
       MuiAppBar: { styleOverrides: { root: { backgroundImage: 'none' } } },
+      MuiCssBaseline: {
+        styleOverrides: (themeParam) => {
+          const dark = themeParam.palette.mode === 'dark';
+          const amber = themeParam.palette.primary.main;
+          const track = dark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+          const thumb = dark ? 'rgba(224,152,63,0.35)' : 'rgba(181,101,29,0.30)';
+          const gutter = themeParam.palette.background.default;
+
+          const bar = {
+            '&::-webkit-scrollbar': { width: 12, height: 12 },
+            '&::-webkit-scrollbar-track': { background: track, borderRadius: 999 },
+            '&::-webkit-scrollbar-thumb': {
+              background: thumb,
+              borderRadius: 999,
+              border: `3px solid ${gutter}`,
+              backgroundClip: 'padding-box',
+            },
+            '&::-webkit-scrollbar-thumb:hover': {
+              background: amber,
+              backgroundClip: 'padding-box',
+            },
+          };
+
+          return {
+            // Firefox — thin + amber, inherited by every scroll container.
+            '*': { scrollbarWidth: 'thin', scrollbarColor: `${thumb} ${track}` },
+            // WebKit — declare on html, body, and universally so every overflow
+            // container picks it up, not just the main page scrollbar. html/body
+            // also carry the Firefox properties.
+            'html': { scrollbarWidth: 'thin', scrollbarColor: `${thumb} ${track}`, ...bar },
+            'body': bar,
+            '*::-webkit-scrollbar': { width: 12, height: 12 },
+            '*::-webkit-scrollbar-track': { background: track, borderRadius: 999 },
+            '*::-webkit-scrollbar-thumb': {
+              background: thumb,
+              borderRadius: 999,
+              border: `3px solid ${gutter}`,
+              backgroundClip: 'padding-box',
+            },
+            '*::-webkit-scrollbar-thumb:hover': {
+              background: amber,
+              backgroundClip: 'padding-box',
+            },
+          };
+        },
+      },
     },
   });

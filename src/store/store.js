@@ -30,10 +30,6 @@ import sidebarReducer from './slices/sidebarSlice';
 import authReducer from './slices/authSlice';
 import playerReducer from './slices/playerSlice';
 
-// Only UI preferences are persisted. auth is intentionally NOT persisted: the
-// session lives in an httpOnly cookie (handled by the browser/backend), and
-// the user object is re-fetched from /auth/me on load. Nothing auth-related
-// is ever written to localStorage.
 const persistConfig = {
   key: 'audivo',
   storage,
@@ -62,4 +58,3 @@ export const store = configureStore({
 });
 
 export const persistor = persistStore(store);
-

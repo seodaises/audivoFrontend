@@ -12,6 +12,7 @@ import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded';
 import { useAuth } from '../store/hooks/useAuth';
 import DeleteAccountDialog from './DeleteAccountDialog';
+import AudivoDateField from './AudivoDateField';
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
 
@@ -204,13 +205,11 @@ export default function ProfileDialog({ open, onClose }) {
                 </FormControl>
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
-                <TextField
+                <AudivoDateField
                   label="Birthday"
-                  type="date"
-                  fullWidth
                   value={form.birthday}
-                  onChange={set('birthday')}
-                  slotProps={{ inputLabel: { shrink: true } }}
+                  onChange={(ymd) => setForm((f) => ({ ...f, birthday: ymd }))}
+                  maxDate={new Date()}
                 />
               </Grid>
             </Grid>

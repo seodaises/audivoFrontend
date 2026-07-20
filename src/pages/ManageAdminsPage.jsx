@@ -18,6 +18,7 @@ import { api } from '../api/client';
 import { useAuth } from '../store/hooks/useAuth';
 import SetUserStatusDialog from '../components/SetUserStatusDialog';
 import DeleteUserDialog from '../components/DeleteUserDialog';
+import SearchField from '../components/SearchField';
 
 const ROLE_LEVEL = {
   'Super Admin': 5, 'Admin': 4, 'Moderator': 3, 'Artist': 2, 'Listener': 1,
@@ -135,28 +136,12 @@ export default function ManageAdminsPage() {
           spacing={1.5}
           sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}
         >
-          <TextField
-            size="small"
+          <SearchField
             placeholder="Search name, username, or email"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
             sx={{ width: { xs: '100%', sm: 300 } }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRoundedIcon fontSize="small" color="action" />
-                  </InputAdornment>
-                ),
-                endAdornment: search ? (
-                  <InputAdornment position="end">
-                    <IconButton size="small" aria-label="clear search" onClick={() => setSearch('')}>
-                      <CloseRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </InputAdornment>
-                ) : null,
-              },
-            }}
           />
           <Button
             variant="contained" disableElevation startIcon={<PersonAddRoundedIcon />}

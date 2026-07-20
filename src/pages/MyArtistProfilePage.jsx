@@ -197,11 +197,6 @@ export default function MyArtistProfilePage() {
                   subtitle={a.isSingle ? 'Single' : 'Album'}
                   onClick={() => navigate(`/album/${a.id}`)}
                 />
-                {/* The status chip STAYS. Showing state is this page's job; changing
-                    it is not. A read-only badge tells you where a release stands
-                    without pretending to be a control. */}
-                <Chip size="small" label={a.status} color={statusColor(a.status)}
-                  sx={{ position: 'absolute', top: 8, left: 8 }} />
               </Box>
             </Box>
           ))}

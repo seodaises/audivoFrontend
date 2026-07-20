@@ -1,18 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { setProgress, setDuration, ended, clearSeek } from '../store/slices/playerSlice';
+import { setProgress, setDuration, ended, clearSeek, restorePlayback, reset as resetPlayer } from '../store/slices/playerSlice';
+import { setPlaybarHidden } from '../store/slices/sidebarSlice';
 import { songFileUrl } from '../api/catalog';
 import { recordPlay } from '../api/comments';
 
-// How long a track must actually play before it counts as a real listen.
-// Spotify's threshold is ~30s: below this it's a skip, not a play. We keep the
-// raw event out of the count entirely until the bar is crossed.
 const PLAY_THRESHOLD_SECS = 30;
 
-// Where "resume where you left off" remembers its position. A single localStorage
-// key holding { songId, seconds }. Deliberately NOT wired into redux-persist —
-// this codebase keeps auth and playback OUT of persistence on purpose; resume is
-// a narrow, self-contained bit of state that doesn't belong in the store at all.
 const RESUME_KEY = 'audivo.player.resume';
 
 const readResume = () => {
@@ -20,51 +14,69 @@ const readResume = () => {
     const raw = localStorage.getItem(RESUME_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed.songId !== 'undefined' && typeof parsed.seconds === 'number') {
-      return parsed;
-    }
-    return null;
+    const trackId = parsed?.track?.id ?? null;
+    const songId = parsed?.songId ?? null;
+
+    if (!trackId) return null;
+    if (songId != null && String(songId) !== String(trackId)) return null;
+    if (typeof parsed.seconds !== 'number') return null;
+    return parsed;
   } catch {
     return null;
   }
 };
 
-const writeResume = (songId, seconds) => {
+const writeResume = (track, seconds, isPlaying) => {
   try {
-    localStorage.setItem(RESUME_KEY, JSON.stringify({ songId, seconds }));
+    const payload = {
+      songId: track?.id ?? null,
+      seconds: Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0,
+      isPlaying: Boolean(isPlaying),
+      track: track
+        ? {
+            id: track.id,
+            title: track.title,
+            artist: track.artist ?? null,
+            coverUrl: track.coverUrl ?? null,
+            source: track.source ?? null,
+          }
+        : null,
+    };
+    localStorage.setItem(RESUME_KEY, JSON.stringify(payload));
   } catch {
-    // Storage full or blocked (private mode). Resume is a nicety, not load-bearing.
   }
 };
 
 export default function PlayerProvider({ children }) {
   const dispatch = useDispatch();
-  const { current, isPlaying, seekTo, progress } = useSelector((s) => s.player);
+  const { current, isPlaying, seekTo, progress, repeat } = useSelector((s) => s.player);
+  const user = useSelector((s) => s.auth.user);
+
+  const checkingSession = useSelector((s) => s.auth.checkingSession);
   const audioRef = useRef(null);
 
-  // Marks the song id we've already counted a play for, so recordPlay fires at
-  // most once per load even though the 30s effect runs on every timeupdate.
+  const restoredRef = useRef(false);
   const reportedIdRef = useRef(null);
-
-  // Set true once we've applied a saved resume position for the current load, so
-  // we don't fight the user every time they seek.
   const resumeAppliedRef = useRef(false);
+  
+  const pendingResumeRef = useRef(null);
+  const pendingResumeIdRef = useRef(null);
+
+  const repeatRef = useRef(repeat);
+  useEffect(() => { repeatRef.current = repeat; }, [repeat]);
 
   const loadedIdRef = useRef(null);
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     if (!current) {
-      // Player was reset (e.g. logout): stop and detach the source so audio
-      // truly stops instead of lingering.
       audio.pause();
       audio.removeAttribute('src');
       audio.load();
       loadedIdRef.current = null;
-      // Clear the report marker too. If the same song is played again after a
-      // logout/reset, that is genuinely a NEW play and must be counted again.
       reportedIdRef.current = null;
       resumeAppliedRef.current = false;
+      restoredRef.current = false;
       return;
     }
     if (loadedIdRef.current !== current.id) {
@@ -73,29 +85,74 @@ export default function PlayerProvider({ children }) {
       // A fresh track: neither counted nor resumed yet.
       reportedIdRef.current = null;
       resumeAppliedRef.current = false;
+      if (pendingResumeIdRef.current !== null &&
+          pendingResumeIdRef.current !== String(current.id)) {
+        pendingResumeRef.current = null;
+        pendingResumeIdRef.current = null;
+      }
     }
   }, [current]);
 
-  // ── Resume where you left off ──────────────────────────────────────────────
-  // When THIS song matches the last-saved resume point, jump to that position
-  // once the file's metadata is known (so currentTime is settable). Applied a
-  // single time per load; after that the user's own seeking wins.
+  useEffect(() => {
+    if (checkingSession) return;
+
+    if (!user) {
+     
+      const audio = audioRef.current;
+      if (audio) {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
+      loadedIdRef.current = null;
+      reportedIdRef.current = null;
+      resumeAppliedRef.current = false;
+      restoredRef.current = false;
+      localStorage.removeItem(RESUME_KEY);
+      dispatch(setProgress(0));
+      dispatch(setDuration(0));
+      dispatch(resetPlayer());
+      dispatch(setPlaybarHidden(true));
+      return;
+    }
+
+    if (restoredRef.current || current) return;
+    const saved = readResume();
+    if (!saved?.track?.id) {
+      restoredRef.current = true;
+      return;
+    }
+    restoredRef.current = true;
+    pendingResumeRef.current = saved.seconds || 0;
+    pendingResumeIdRef.current = String(saved.track.id);
+    dispatch(restorePlayback({
+      track: saved.track,
+      progress: saved.seconds || 0,
+      isPlaying: false,
+    }));
+  }, [current, dispatch, user, checkingSession]);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !current) return;
     if (resumeAppliedRef.current) return;
 
-    const saved = readResume();
-    if (!saved || String(saved.songId) !== String(current.id)) {
-      resumeAppliedRef.current = true; // nothing to resume for this track
+    // Nothing pending for this track — mark applied and move on.
+    if (pendingResumeRef.current == null) {
+      resumeAppliedRef.current = true;
       return;
     }
 
     const apply = () => {
-      // Guard against seeking past the end (e.g. saved near the finish).
-      const target = Math.min(saved.seconds, Math.max((audio.duration || 0) - 1, 0));
-      if (target > 0) audio.currentTime = target;
+      const secs = pendingResumeRef.current;
+      if (secs != null) {
+        // Guard against seeking past the end (e.g. saved near the finish).
+        const target = Math.min(secs, Math.max((audio.duration || 0) - 1, 0));
+        if (target > 0) audio.currentTime = target;
+      }
       resumeAppliedRef.current = true;
+      pendingResumeRef.current = null; // seek landed — onTimeUpdate may write freely now
+      pendingResumeIdRef.current = null;
     };
 
     if (audio.readyState >= 1 /* HAVE_METADATA */) apply();
@@ -104,11 +161,6 @@ export default function PlayerProvider({ children }) {
     return () => audio.removeEventListener('loadedmetadata', apply);
   }, [current]);
 
-  // ── The 30-second play rule ────────────────────────────────────────────────
-  // recordPlay used to fire the instant a track loaded, which counted a 1-second
-  // skip as a play. Now it fires only once playback has actually crossed the
-  // threshold — or reached the end of a track SHORTER than the threshold, which
-  // is still a complete listen.
   useEffect(() => {
     if (!current) return;
     if (reportedIdRef.current === current.id) return;
@@ -123,13 +175,29 @@ export default function PlayerProvider({ children }) {
     }
   }, [current, progress]);
 
-  // Play/pause the element to match isPlaying. play() returns a promise that
-  // rejects if the browser blocks autoplay or the file 401s — swallow it so a
-  // failed play doesn't crash React.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !current) return;
     if (isPlaying) {
+      if (pendingResumeRef.current != null) {
+        const secs = pendingResumeRef.current;
+        const doSeekAndPlay = () => {
+          const target = Math.min(secs, Math.max((audio.duration || 0) - 1, 0));
+          if (target > 0) audio.currentTime = target;
+          resumeAppliedRef.current = true;
+          pendingResumeRef.current = null;
+          pendingResumeIdRef.current = null;
+          audio.play().catch(() => {});
+        };
+        if (audio.readyState >= 1 /* HAVE_METADATA */) {
+          doSeekAndPlay();
+        } else {
+          // Metadata not loaded yet — wait for it, seek, THEN play, so we never
+          // start audio at 0 and jump.
+          audio.addEventListener('loadedmetadata', doSeekAndPlay, { once: true });
+        }
+        return; // play is handled inside doSeekAndPlay
+      }
       audio.play().catch(() => {});
     } else {
       audio.pause();
@@ -144,21 +212,46 @@ export default function PlayerProvider({ children }) {
     dispatch(clearSeek());
   }, [seekTo, isPlaying, dispatch]);
 
-  // Persist the current position so a reload can resume it. Written from the
-  // store's progress (whole seconds) — cheap, and one key overwritten in place.
   useEffect(() => {
-    if (!current || !isPlaying) return;
-    if (progress > 0) writeResume(current.id, progress);
-  }, [current, isPlaying, progress]);
+
+    if (checkingSession) return;
+    if (!current || !user) {
+      localStorage.removeItem(RESUME_KEY);
+      return;
+    }
+    if (pendingResumeRef.current != null) return;
+    writeResume(current, progress, isPlaying);
+  }, [current, isPlaying, progress, user, checkingSession]);
 
   return (
     <>
       <audio
         ref={audioRef}
         crossOrigin="use-credentials"  // sends the auth cookie to the gated file route
-        onTimeUpdate={(e) => dispatch(setProgress(Math.floor(e.target.currentTime)))}
+        onTimeUpdate={(e) => {
+          if (pendingResumeRef.current != null) return;
+          dispatch(setProgress(Math.floor(e.target.currentTime)));
+        }}
         onLoadedMetadata={(e) => dispatch(setDuration(Math.floor(e.target.duration || 0)))}
-        onEnded={() => dispatch(ended())}
+        onEnded={() => {
+          const audio = audioRef.current;
+          if (repeatRef.current === 'one' && audio) {
+            // Allow this cycle to be counted as a fresh play.
+            reportedIdRef.current = null;
+            // Any stale resume intent must not hijack the replay seek.
+            pendingResumeRef.current = null;
+            pendingResumeIdRef.current = null;
+            resumeAppliedRef.current = true;
+
+            dispatch(setProgress(0));
+            audio.currentTime = 0;
+            const p = audio.play();
+            if (p && typeof p.catch === 'function') p.catch(() => {});
+            return;
+          }
+
+          dispatch(ended());
+        }}
         style={{ display: 'none' }}
       />
       {children}

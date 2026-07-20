@@ -19,8 +19,11 @@ import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRena
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
 import PlaylistAddRoundedIcon from '@mui/icons-material/PlaylistAddRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
+import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
+import FavoriteBorderRoundedIcon from '@mui/icons-material/FavoriteBorderRounded';
 import AddToPlaylistDialog from '../components/AddToPlaylistDialog';
 import CommentSection from '../components/CommentSection';
+import useSocialSong from '../store/hooks/useSocial';
 import { useSelector, useDispatch } from 'react-redux';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
 import {
@@ -34,6 +37,15 @@ const fmtDuration = (secs) => {
   return `${m}:${s}`;
 };
 
+// Compact play count: 0 -> "0", 1500 -> "1.5K", 3_000_000 -> "3M". Keeps a large
+// stream total from stretching the tracklist row.
+const fmtStreams = (n) => {
+  const v = Number(n) || 0;
+  if (v < 1000) return String(v);
+  if (v < 1_000_000) return `${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}K`;
+  return `${(v / 1_000_000).toFixed(v % 1_000_000 === 0 ? 0 : 1)}M`;
+};
+
 const fmtDate = (iso) => {
   if (!iso) return null;
   const d = new Date(`${iso}T00:00:00`);
@@ -43,6 +55,29 @@ const fmtDate = (iso) => {
 
 const statusColor = (s) =>
   s === 'published' ? 'success' : s === 'archived' ? 'default' : 'warning';
+function TrackLikeButton({ songId, title, visible }) {
+  const { liked, busy, toggleLike } = useSocialSong(songId);
+  return (
+    <Tooltip title={liked ? 'Unlike' : 'Like'}>
+      <span>
+        <IconButton
+          size="small"
+          disabled={busy}
+          aria-label={liked ? `Unlike ${title}` : `Like ${title}`}
+          onClick={(e) => { e.stopPropagation(); toggleLike(); }}
+          sx={{
+            color: liked ? 'error.main' : 'inherit',
+            opacity: liked || visible ? 1 : 0,
+            pointerEvents: liked || visible ? 'auto' : 'none',
+            transition: 'opacity .18s ease',
+          }}
+        >
+          {liked ? <FavoriteRoundedIcon fontSize="small" /> : <FavoriteBorderRoundedIcon fontSize="small" />}
+        </IconButton>
+      </span>
+    </Tooltip>
+  );
+}
 
 export default function AlbumPage() {
   const { id } = useParams();
@@ -62,14 +97,7 @@ export default function AlbumPage() {
   const [editSong, setEditSong] = useState(null);
   const [hoverId, setHoverId] = useState(null);   // which track row is hovered (toggle reveal)
 
-  // The song whose "add to playlist" dialog is open, or null. ONE dialog for the
-  // whole page, driven by which song is in state — not one dialog per row. Forty
-  // tracks would otherwise mean forty mounted dialogs, each fetching playlists.
   const [playlistSong, setPlaylistSong] = useState(null);
-
-  // The song whose comment thread is open, or null. Same one-dialog-per-page
-  // idiom as playlistSong above — one <CommentSection>, driven by which song is
-  // selected, not one mounted per row.
   const [commentSong, setCommentSong] = useState(null);
 
   const load = useCallback(async () => {
@@ -105,11 +133,6 @@ export default function AlbumPage() {
   };
 
   const owner = Boolean(album?.isOwner);
-
-  // Glass status toggle for an owned track — mirrors the Library album toggle so
-  // the two surfaces share one visual language. One action per state:
-  // draft -> publish, published -> archive, archived -> republish. Revealed on
-  // row hover (visible), alongside a separate rename control.
   const songToggle = (s, visible) => {
     const busy = busyId === s.id;
     const map = {
@@ -225,10 +248,6 @@ export default function AlbumPage() {
                 {album.description}
               </Typography>
             )}
-
-            {/* Owner-only album controls. These open EditAlbumDialog / AddSongDialog,
-                which were previously defined but unreachable — nothing rendered a
-                button that called setEditAlbumOpen or setAddSongOpen. */}
             {owner && (
               <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
                 <Button
@@ -268,20 +287,43 @@ export default function AlbumPage() {
                 onMouseEnter={() => setHoverId(s.id)}
                 onMouseLeave={() => setHoverId(null)}>
                 <ListItemAvatar>
-                  <Avatar variant="rounded" sx={{ bgcolor: isThis ? 'primary.main' : 'action.selected' }}>
-                    {isThis ? <PauseRoundedIcon /> : <PlayArrowRoundedIcon />}
-                  </Avatar>
+                  <Box sx={{ position: 'relative', width: 40, height: 40 }}>
+                    <Avatar
+                      variant="rounded"
+                      src={album.coverUrl || undefined}
+                      sx={{ width: 40, height: 40, bgcolor: 'action.selected' }}
+                    />
+                    {/* Play/pause overlay: always shown while this track is the
+                        active one (so you can tell what's playing at a glance),
+                        otherwise only on hover — same reveal pattern AlbumCard
+                        uses for its play button. */}
+                    {(isThis || hoverId === s.id) && (
+                      <Box
+                        sx={{
+                          position: 'absolute', inset: 0, borderRadius: 1,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          bgcolor: 'rgba(0,0,0,0.45)', color: 'common.white',
+                        }}
+                      >
+                        {isThis ? <PauseRoundedIcon fontSize="small" /> : <PlayArrowRoundedIcon fontSize="small" />}
+                      </Box>
+                    )}
+                  </Box>
                 </ListItemAvatar>
                 <ListItemText
                   primary={s.title}
-                  secondary={`${s.trackNumber != null ? `Track ${s.trackNumber} · ` : ''}${fmtDuration(s.durationSeconds)}`}
+                  secondary={`${s.trackNumber != null ? `Track ${s.trackNumber} · ` : ''}${fmtDuration(s.durationSeconds)}${
+                    s.status === 'published'
+                      ? ` · ${fmtStreams(s.playCount)} ${s.playCount === 1 ? 'stream' : 'streams'}`
+                      : ''
+                  }`}
                   slotProps={{ primary: { fontWeight: 600 } }}
                 />
 
                 <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-                  {/* Add-to-playlist is for EVERY listener, not just the album's
-                      owner — which is why it sits OUTSIDE the `owner &&` guard
-                      below. Anything inside that guard is an artist tool. */}
+                  {s.status === 'published' && (
+                    <TrackLikeButton songId={s.id} title={s.title} visible={hoverId === s.id} />
+                  )}
                   <Tooltip title="Add to playlist">
                     <IconButton size="small" aria-label="Add to playlist"
                       onClick={(e) => { e.stopPropagation(); setPlaylistSong(s); }}
@@ -293,11 +335,6 @@ export default function AlbumPage() {
                       <PlaylistAddRoundedIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
-
-                  {/* Comments open only for PUBLISHED songs: the backend's
-                      listForSong 403s on draft/archived tracks, so showing the
-                      button there would hand the user a dialog that errors. Also
-                      outside the `owner` guard — commenting is every listener's. */}
                   {s.status === 'published' && (
                     <Tooltip title="Comments">
                       <IconButton size="small" aria-label="Comments"
@@ -362,18 +399,12 @@ export default function AlbumPage() {
           onError={setErr}
         />
       )}
-
-      {/* Lives HERE, in AlbumPage — not inside EditAlbumDialog. `playlistSong` is
-          AlbumPage state; a child component cannot see it. */}
       <AddToPlaylistDialog
         open={Boolean(playlistSong)}
         onClose={() => setPlaylistSong(null)}
         songId={playlistSong?.id}
         songTitle={playlistSong?.title}
       />
-
-      {/* Comment thread dialog. Mounted only while a song is selected so the
-          CommentSection fetches once, on open — not one per row on page load. */}
       <Dialog
         open={Boolean(commentSong)}
         onClose={() => setCommentSong(null)}
@@ -382,7 +413,7 @@ export default function AlbumPage() {
       >
         <DialogTitle sx={{ pb: 1 }}>{commentSong?.title}</DialogTitle>
         <DialogContent dividers>
-          {commentSong && <CommentSection songId={commentSong.id} />}
+          {commentSong && <CommentSection songId={commentSong.id} isSongOwner={owner} />}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCommentSong(null)}>Close</Button>

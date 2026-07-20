@@ -15,10 +15,19 @@ import {
   fetchComments, postComment, deleteComment, setCommentStatus,
 } from '../api/comments';
 
-function CommentRow({ comment, currentUserId, canModerate, busyId, onReply, onDelete, onHide, onRestore, isReply = false }) {
+function CommentRow({ comment, currentUserId, canModerate, canDeleteAny, busyId, onReply, onDelete, onHide, onRestore, isReply = false }) {
   const author = comment.author;                       // { id, displayName, avatarUrl, isDeleted } | null
   const mine = !!currentUserId && author?.id === currentUserId;
   const busy = busyId === comment.id;
+
+  // Three levels deep, flattened: root -> reply -> reply-to-a-reply, all
+  // rendered at the same indent under the root. `comment.replyingTo` only
+  // ever shows up on a reply-to-a-reply (the backend omits it for a plain
+  // reply-to-root, since that's the default and needs no annotation) — so
+  // its presence IS the signal that this row is already at the depth cap.
+  // A top-level comment can always be replied to; a reply can be replied to
+  // only if it's NOT already a reply-to-a-reply.
+  const canReply = !isReply || !comment.replyingTo;
 
   return (
     <Box sx={{ pl: isReply ? { xs: 4, sm: 6 } : 0 }}>
@@ -42,6 +51,15 @@ function CommentRow({ comment, currentUserId, canModerate, busyId, onReply, onDe
             )}
           </Stack>
 
+          {/* Flattened rendering means this reply sits at the same indent as
+              a plain reply — this line is the only thing that says it was
+              actually answering a REPLY, not the root comment. */}
+          {comment.replyingTo && (
+            <Typography variant="caption" color="primary.main" sx={{ display: 'block', fontWeight: 600 }}>
+              Replying to @{comment.replyingTo.author?.displayName || 'a deleted comment'}
+            </Typography>
+          )}
+
           <Typography
             variant="body2"
             sx={{
@@ -58,9 +76,7 @@ function CommentRow({ comment, currentUserId, canModerate, busyId, onReply, onDe
           {/* Action row. Nothing to act on for a deleted tombstone. */}
           {!comment.isDeleted && (
             <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, ml: -0.5 }}>
-              {/* Replies are only one level deep (enforced backend-side), so a
-                  reply row shows no further Reply button. */}
-              {!isReply && (
+              {canReply && (
                 <Button
                   size="small"
                   startIcon={<ReplyRoundedIcon fontSize="small" />}
@@ -71,10 +87,17 @@ function CommentRow({ comment, currentUserId, canModerate, busyId, onReply, onDe
                 </Button>
               )}
 
-              {mine && (
-                <Tooltip title="Delete your comment">
+              {(mine || canDeleteAny) && (
+                <Tooltip title={mine ? 'Delete your comment' : 'Delete this comment'}>
                   <span>
-                    <IconButton size="small" disabled={busy} onClick={() => onDelete(comment.id)}>
+                    <IconButton
+                      size="small"
+                      // Deleting someone else's words is a heavier act than
+                      // withdrawing your own, so it reads in the error colour.
+                      color={mine ? 'default' : 'error'}
+                      disabled={busy}
+                      onClick={() => onDelete(comment.id, !mine)}
+                    >
                       <DeleteOutlineRoundedIcon fontSize="small" />
                     </IconButton>
                   </span>
@@ -108,9 +131,27 @@ function CommentRow({ comment, currentUserId, canModerate, busyId, onReply, onDe
   );
 }
 
-export default function CommentSection({ songId }) {
+export default function CommentSection({ songId, isSongOwner = false }) {
   const { user, can } = useAuth();
   const canModerate = can(PERMISSIONS.MODERATE_COMMENTS);
+
+  // Who may delete someone ELSE's comment. This mirrors the backend's three
+  // tiers in commentService.deleteComment — the UI must not offer a button the
+  // server will reject, nor hide one it would allow:
+  //
+  //   moderator          — global, any comment anywhere
+  //   delete_comments +
+  //     manage_users     — admin-tier, global
+  //   delete_comments    — artist-tier, ONLY on songs they own
+  //
+  // The artist tier needs song ownership, which this component can't know on
+  // its own (it only receives a songId), so the page passes `isSongOwner` down.
+  // Getting this wrong is safe in one direction only: the server is still the
+  // authority and will 403 anything it disagrees with.
+  const canDeleteAny =
+    canModerate ||
+    (can(PERMISSIONS.DELETE_COMMENTS) &&
+      (can(PERMISSIONS.MANAGE_USERS) || isSongOwner));
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -157,7 +198,15 @@ export default function CommentSection({ songId }) {
     }
   };
 
-  const remove = async (id) => {
+  // `isOthers` is passed by the row so this can confirm only when the act is
+  // destructive to someone else. Withdrawing your own comment needs no gate;
+  // removing a stranger's does — and the delete is a tombstone the UI can't undo.
+  const remove = async (id, isOthers = false) => {
+    if (isOthers && !window.confirm(
+      'Delete this comment? The author will not be able to recover it.\n\n'
+      + 'If you only want it off the public thread, hide it instead — hiding is reversible.'
+    )) return;
+
     setBusyId(id);
     setErr('');
     try {
@@ -186,6 +235,7 @@ export default function CommentSection({ songId }) {
   const rowProps = {
     currentUserId: user?.id,
     canModerate,
+    canDeleteAny,
     busyId,
     onReply: (c) => setReplyTo(c),
     onDelete: remove,

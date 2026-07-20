@@ -21,7 +21,7 @@ import {
   useSortable, arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { fetchPlaylist, removeTrack, moveTrack } from '../api/playlist';
+import { fetchPlaylist, removeTrack, moveTrack, updatePlaylist } from '../api/playlist';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
 import { PLAYLISTS } from '../constants/route_constant';
 
@@ -107,6 +107,11 @@ export default function PlaylistPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  // Owner-only: whether the caller owns this playlist (drives the visibility
+  // toggle) and whether a public/private write is in flight (locks the chip so a
+  // double-click can't fire two conflicting PATCHes).
+  const [isOwner, setIsOwner] = useState(false);
+  const [togglingVisibility, setTogglingVisibility] = useState(false);
 
   const loadedId = useSelector((s) => s.player.current?.id);
   const playingId = useSelector((s) => (s.player.isPlaying ? s.player.current?.id : null));
@@ -128,6 +133,10 @@ export default function PlaylistPage() {
       // tracks is a plain array of { playlistSongId, position, song }.
       setPlaylist(data.playlist);
       setTracks(data.tracks ?? []);
+      // GET /playlists/:id already tells us whether the caller owns it. Only the
+      // owner gets the interactive visibility toggle; a viewer of a PUBLIC
+      // playlist still sees the chip, just read-only.
+      setIsOwner(Boolean(data.isOwner));
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -195,6 +204,31 @@ export default function PlaylistPage() {
     }
   };
 
+  // Flip public <-> private. Optimistic, same as the reorder/remove handlers:
+  // the chip changes the instant it's clicked, and only rolls back if the PATCH
+  // fails — so the common (successful) case has no visible network lag.
+  const toggleVisibility = async () => {
+    if (!isOwner || togglingVisibility || !playlist) return;
+
+    const previous = playlist;
+    const nextPublic = !playlist.isPublic;
+
+    setPlaylist({ ...playlist, isPublic: nextPublic }); // optimistic flip
+    setTogglingVisibility(true);
+    setErr('');
+    try {
+      // Backend is the source of truth — take isPublic from its response rather
+      // than trusting our optimistic guess, in case anything normalises it.
+      const updated = await updatePlaylist(id, { isPublic: nextPublic });
+      setPlaylist((cur) => ({ ...cur, isPublic: updated.isPublic }));
+    } catch (e) {
+      setPlaylist(previous); // roll back to exactly what the user saw
+      setErr(e.message);
+    } finally {
+      setTogglingVisibility(false);
+    }
+  };
+
   const remove = async (playlistSongId) => {
     const previous = tracks;
     setTracks(tracks.filter((t) => t.playlistSongId !== playlistSongId));  // optimistic again
@@ -245,12 +279,33 @@ export default function PlaylistPage() {
             <Typography variant="h4" sx={{ fontWeight: 800 }} noWrap>
               {playlist?.title}
             </Typography>
-            <Chip
-              size="small"
-              icon={playlist?.isPublic ? <PublicRoundedIcon /> : <LockRoundedIcon />}
-              label={playlist?.isPublic ? 'Public' : 'Private'}
-              variant="outlined"
-            />
+            {isOwner ? (
+              <Tooltip
+                title={
+                  playlist?.isPublic
+                    ? 'Public — anyone can view it. Click to make private.'
+                    : 'Private — only you can see it. Click to make public.'
+                }
+              >
+                <Chip
+                  size="small"
+                  clickable
+                  onClick={toggleVisibility}
+                  color={playlist?.isPublic ? 'success' : 'default'}
+                  icon={playlist?.isPublic ? <PublicRoundedIcon /> : <LockRoundedIcon />}
+                  label={playlist?.isPublic ? 'Public' : 'Private'}
+                  variant="outlined"
+                  sx={{ opacity: togglingVisibility ? 0.6 : 1 }}
+                />
+              </Tooltip>
+            ) : (
+              <Chip
+                size="small"
+                icon={playlist?.isPublic ? <PublicRoundedIcon /> : <LockRoundedIcon />}
+                label={playlist?.isPublic ? 'Public' : 'Private'}
+                variant="outlined"
+              />
+            )}
           </Stack>
           {playlist?.description && (
             <Typography variant="body2" color="text.secondary">{playlist.description}</Typography>

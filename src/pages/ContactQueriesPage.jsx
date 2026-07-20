@@ -13,6 +13,7 @@ import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import { api } from '../api/client';
 import { fmtDateTime } from '../utils/format';
+import SearchField from '../components/SearchField';
 
 // status -> chip colour. Mirrors the backend's { new | read | resolved }.
 const statusColor = (s) => {
@@ -169,21 +170,12 @@ export default function ContactQueriesPage() {
           spacing={1.5}
           sx={{ alignItems: { sm: 'center' } }}
         >
-          <TextField
-            size="small"
+          <SearchField
             placeholder="Search name, email, or subject…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
             sx={{ width: { xs: '100%', sm: 280 } }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRoundedIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-              },
-            }}
           />
 
           <ToggleButtonGroup

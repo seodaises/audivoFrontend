@@ -30,9 +30,6 @@ export default function AlbumCard({
     fn?.();
   };
 
-  // No albumId -> no save affordance. This keeps the adapter path (plain album
-  // cards that pass no id) from rendering a dead button, and matches the old
-  // MediaCard, which had no album social at all.
   const actions = albumId ? (
     <Stack
       className="social-actions"
@@ -81,6 +78,7 @@ export default function AlbumCard({
 
   return (
     <MediaCardShell
+      variant="album"
       title={title}
       subtitle={subtitle}
       imageUrl={imageUrl}

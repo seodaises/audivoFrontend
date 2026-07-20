@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Typography } from '@mui/material';
 import { ThemeProvider, CssBaseline } from '@mui/material';
@@ -33,9 +33,24 @@ import PlaylistPage from './pages/PlaylistPage';
 import DiscoverPage from './pages/DiscoverPage';
 import { PERMISSIONS } from './auth/permissions';
 import AnalyticsPage from './pages/AnalyticsPage';
+import ArtistAnalyticsPage from './pages/ArtistAnalyticsPage';
+import ModeratePage from './pages/ModeratePage';
 import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES, MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER} from './constants/route_constant';
 
 const Placeholder = ({ title }) => <Typography variant="h4" sx={{ fontWeight: 800 }}>{title}</Typography>;
+
+// VIEW_ANALYTICS is held by BOTH admin-tier roles and Artists, but it means two
+// different things: admins get platform-wide data from /admin/metrics, artists
+// get their own catalogue from /artists/analytics/tracks. Splitting here rather
+// than branching inside one page keeps two unrelated views out of one file.
+//
+// Artist-hood is a role, not a rank an admin inherits (see artistRoutes.js), so
+// an exact role check is sufficient — there is no admin-who-is-also-an-artist.
+// `user.role` is the role NAME as sent by authService ('Artist', 'Admin', ...).
+function AnalyticsRouter() {
+  const user = useSelector((s) => s.auth.user);
+  return user?.role === 'Artist' ? <ArtistAnalyticsPage /> : <AnalyticsPage />;
+}
 
 function AppThemeProvider({ children }) {
   const { mode } = useColorMode();
@@ -81,10 +96,7 @@ export default function App() {
             <Route path="/playlist/:id" element={<PlaylistPage />} />
             <Route path="/album/:id" element={<AlbumPage />} />
             <Route path="/artist/:username" element={<ArtistPage />} />
-
-            {/* Artist-only. Mirrors the Sidebar's permission map exactly — if a
-                nav item is gated on a permission, its route must be too, or the
-                URL bar is a way around the sidebar. */}
+            {/* Artist. */}
             <Route path={UPLOAD} element={
               <RequirePermission permission={PERMISSIONS.UPLOAD_SONGS}>
                 <ArtistStudioPage />
@@ -134,12 +146,12 @@ export default function App() {
             } />
             <Route path={ANALYTICS} element={
               <RequirePermission permission={PERMISSIONS.VIEW_ANALYTICS}>
-                <AnalyticsPage />
+                <AnalyticsRouter />
               </RequirePermission>
             } />
             <Route path={MODERATE} element={
               <RequirePermission permission={PERMISSIONS.MODERATE_COMMENTS}>
-                <Placeholder title="Moderate Comments" />
+                <ModeratePage />
               </RequirePermission>
             } />
 

@@ -11,6 +11,7 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import { useNavigate } from 'react-router-dom';
 import { adminListArtists, verifyArtist } from '../api/catalog';
 import { fmtCount } from '../utils/format';
+import SearchField from '../components/SearchField';
 
 // Admin page: the artist verification queue. Unverified artists can't publish (createAlbum requires a verified profile), so this is where an admin approves them. The `filter` toggle defaults to "Pending" — the actionable view.
 export default function ManageArtistsPage() {
@@ -103,21 +104,12 @@ export default function ManageArtistsPage() {
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}
           sx={{ alignItems: { sm: 'center' } }}>
-          <TextField
-            size="small"
+          <SearchField
             placeholder="Search name, username, or email…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onClear={() => setSearch('')}
             sx={{ width: { xs: '100%', sm: 280 } }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchRoundedIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-              },
-            }}
           />
 
           <ToggleButtonGroup
