@@ -10,6 +10,8 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import VerifiedRoundedIcon from '@mui/icons-material/VerifiedRounded';
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded';
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
+import LoginHistoryDialog from './LoginHistoryDialog';
 import { useAuth } from '../store/hooks/useAuth';
 import DeleteAccountDialog from './DeleteAccountDialog';
 import AudivoDateField from './AudivoDateField';
@@ -36,6 +38,7 @@ export default function ProfileDialog({ open, onClose }) {
   const [form, setForm] = useState(formFromUser(user));
   const [saved, setSaved] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Username editor — separate endpoint, so it carries its own local state.
   const [usernameDraft, setUsernameDraft] = useState(user?.username ?? '');
@@ -264,6 +267,12 @@ export default function ProfileDialog({ open, onClose }) {
             >
               Delete account
             </Button>
+            <Button
+  startIcon={<HistoryRoundedIcon />}
+  onClick={() => setHistoryOpen(true)}
+>
+  Login history
+</Button>
             <Button onClick={onClose}>Close</Button>
           </>
         )}
@@ -274,6 +283,10 @@ export default function ProfileDialog({ open, onClose }) {
         onClose={() => setDeleteOpen(false)}
         onConfirm={deleteAccount}
       />
+      <LoginHistoryDialog
+  open={historyOpen}
+  onClose={() => setHistoryOpen(false)}
+/>
     </Dialog>
   );
 }
