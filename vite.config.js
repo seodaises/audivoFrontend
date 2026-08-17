@@ -4,19 +4,14 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
-  server: { port: 8080, strictPort: true},
+  server: { port: 5173, strictPort: true},
+  preview: { port: 5173, strictPort: true },
   plugins: [
     react(),
     VitePWA({
-      // 'autoUpdate': a new deployed version takes over silently on next
-      // load, no "refresh to update" prompt to build. Simplest option for
-      // an app without a strong reason to ask the user first.
-      registerType: 'autoUpdate',
 
-      // App-shell caching only, per your call earlier — this precaches the
-      // built JS/CSS/HTML so the UI loads instantly and works offline.
-      // Deliberately NOT touching audio files or API responses: caching
-      // credentialed song streams is a separate, bigger decision.
+      devOptions: { enabled: true },
+      registerType: 'autoUpdate',
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
       },

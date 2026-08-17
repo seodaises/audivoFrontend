@@ -7,7 +7,7 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import { useSelector, useDispatch } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import SongCard from '../components/SongCard';
 import AlbumCard from '../components/AlbumCard';
 import { fetchSongs, fetchAlbums, fetchGenres, searchCatalog, fetchAlbum } from '../api/catalog';
@@ -33,12 +33,13 @@ export default function BrowsePage() {
   const navigate = useNavigate();
   const playingId = useSelector((s) => (s.player.isPlaying ? s.player.current?.id : null));
   const loadedId = useSelector((s) => s.player.current?.id);
+  const [searchParams] = useSearchParams();
 
   const [songs, setSongs] = useState([]);
   const [albums, setAlbums] = useState([]);           // NEW: album row
   const [artistHits, setArtistHits] = useState([]);
   const [genres, setGenres] = useState([]);
-  const [genreId, setGenreId] = useState('');
+  const [genreId, setGenreId] = useState(() => searchParams.get('genre') || '');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [contentTab, setContentTab] = useState('albums');
@@ -75,7 +76,7 @@ export default function BrowsePage() {
         // Songs and albums load together — one paint, not two.
         const [songRes, albumRes] = await Promise.all([
           fetchSongs({ limit: 50, genre: genreId || undefined }),
-          fetchAlbums({ limit: 20 }),
+          fetchAlbums({ limit: 20, genre: genreId || undefined }),
         ]);
         setSongs(songRes.songs);
         setAlbums(albumRes.albums);
@@ -207,7 +208,7 @@ export default function BrowsePage() {
                   imageUrl={a.coverUrl || undefined}
                   title={a.title}
                   subtitle={a.artist?.stageName ?? (a.isSingle ? 'Single' : 'Album')}
-                  onClick={() => navigate(`/album/${a.id}`)}
+                  onClick={() => navigate(`/album/${a.publicId ?? a.id}`)}
                   onPlayAlbum={() => onAlbumPlay(a)}
                 />
               ))}

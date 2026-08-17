@@ -1,13 +1,4 @@
-// All catalog/studio API calls in one place. Every page imports from here so
-// that endpoint paths and payload shapes live in exactly one file — if the
-// backend contract changes, this is the only place to edit.
-//
-// api() (from ./client) already unwraps the backend envelope to { success,
-// message, data } and throws an Error(message) on failure. So each function
-// here returns the `data` payload directly, and callers use try/catch.
 import { api } from './client';
-
-// ---- Reads (listener / browse) ----
 
 // GET /genres -> [{ id, name }]
 export function fetchGenres() {
@@ -28,9 +19,10 @@ export function fetchSongs({ page = 1, limit = 20, genre } = {}) {
   return api(`/catalog/songs?${params.toString()}`).then((res) => res.data);
 }
 
-// GET /catalog/albums?page=&limit=
-export function fetchAlbums({ page = 1, limit = 20 } = {}) {
+// GET /catalog/albums?page=&limit=&genre=
+export function fetchAlbums({ page = 1, limit = 20, genre } = {}) {
   const params = new URLSearchParams({ page, limit });
+  if (genre) params.set('genre', genre);
   return api(`/catalog/albums?${params.toString()}`).then((res) => res.data);
 }
 
@@ -39,13 +31,6 @@ export function fetchArtists({ page = 1, limit = 20 } = {}) {
   const params = new URLSearchParams({ page, limit });
   return api(`/catalog/artists?${params.toString()}`).then((res) => res.data);
 }
-
-// ---- Trending (30-day weighted window) ----
-// score = plays + (2 x likes) + (3 x saves). Self-plays, unpublished content and
-// tombstoned artists are excluded server-side, so these can be rendered as-is.
-// Rows come back in the SAME shape as browseSongs/Albums/Artists, plus
-// { rank, score, plays, likes|saves|follows } — so SongCard/AlbumCard bind with
-// no adapter.
 
 // GET /catalog/trending/songs?limit=
 // -> { songs: [...], window: { days, since } }
@@ -71,49 +56,30 @@ export function searchCatalog(q) {
   return api(`/catalog/search?${params.toString()}`).then((res) => res.data);
 }
 
-// ---- Detail reads (public/self pages) ----
+// GET /albums/:ref -> album detail with songs + artist.
+export function fetchAlbum(albumRef) {
+  return api(`/albums/${albumRef}`).then((res) => res.data);
+}
 
-// GET /albums/:id -> album detail with songs + artist.
-// The backend returns published albums to anyone, and unpublished ones ONLY to
-// the owning artist (it 404s otherwise). Shape:
-// { id, title, coverUrl, status, isSingle, releaseDate,
-//   artist:{ id, stageName, username }|null,
-//   songs:[{ id, title, trackNumber, durationSeconds, status }] }
-// Note artist.username — AlbumPage uses it to link to the artist page.
-export function fetchAlbum(albumId) {
-  return api(`/albums/${albumId}`).then((res) => res.data);
+// GET /catalog/songs/:publicId -> one published song, by its opaque public_id.
+export function fetchSong(publicId) {
+  return api(`/catalog/songs/${publicId}`).then((res) => res.data);
 }
 
 // GET /catalog/artists/:username -> the PUBLIC artist page (published only).
-// Shape: { profile:{ id, stageName, bio, avatarUrl, isVerified, ... },
-//          username, albums:[{ id, title, coverUrl, releaseDate, isSingle }],
-//          songs:[{ id, title, albumId, trackNumber, durationSeconds }] }
-// 404s if the username doesn't exist or the user isn't an artist.
 export function fetchArtistByUsername(username) {
   return api(`/catalog/artists/${encodeURIComponent(username)}`).then((res) => res.data);
 }
 
 // GET /artist/catalog -> the LOGGED-IN user's OWN catalog, ALL statuses
-// (drafts + archived + published) for the Library / self view. Non-artists get
-// { isArtist:false, profile:null, albums:[], songs:[] } — not a 404. Shape:
-// { isArtist, profile,
-//   albums:[{ id, title, coverUrl, status, isSingle, releaseDate }],
-//   songs:[{ id, title, albumId, status, trackNumber, durationSeconds,
-//            coverUrl, artist:{id,stageName}, genres:[{id,name}] }] }
 export function fetchMyCatalog() {
   return api('/artist/catalog').then((res) => res.data);
 }
 
-// The audio stream URL for a song. Not an api() call — this is a raw URL fed
-// straight to an <audio> element's src. It hits the protected file-serve route;
-// the auth cookie rides along because the <audio> tag uses
-// crossOrigin="use-credentials" (see SongList). Clients address songs by ID,
-// never by storage_key (which the browse payload never even exposes).
 export function songFileUrl(songId) {
   return `http://localhost:5000/api/songs/${songId}/file`;
 }
 
-// ---- Writes (artist studio) ----
 
 // POST /artist/profile { stageName, bio?, avatarUrl? }
 export function createArtistProfile({ stageName, bio, avatarUrl }) {
@@ -145,9 +111,6 @@ export function setAlbumStatus(albumId, status) {
 }
 
 // PATCH /albums/:id/schedule { releaseAt }
-// releaseAt MUST be a full ISO string with timezone info (e.g. from
-// Date.prototype.toISOString()), so the server stores the correct UTC instant
-// and the album fires at the exact local time the artist picked.
 export function scheduleRelease(albumId, releaseAt) {
   return api(`/albums/${albumId}/schedule`, {
     method: 'PATCH',
@@ -170,22 +133,17 @@ export function setSongStatus(songId, status) {
   }).then((res) => res.data);
 }
 
-// DELETE /songs/:id — HARD delete. Owner-gated on the backend. This removes the
-// row, its genre links, and the audio file from disk. There is no undo — `archived`
-// is the reversible option, and the UI must make that distinction obvious before
-// calling this.
+// DELETE /songs/:id — HARD delete. 
 export function deleteSong(songId, password) {
   return api(`/songs/${songId}`, { method: 'DELETE', body: { password } }).then((res) => res.data);
 }
 
-// DELETE /albums/:id — HARD delete, PASSWORD-GATED, CASCADING to every song in the
-// album (rows, genre links, audio files). Returns { id, deleted, songsDeleted }.
+// DELETE /albums/:id 
 export function deleteAlbum(albumId, password) {
   return api(`/albums/${albumId}`, { method: 'DELETE', body: { password } }).then((res) => res.data);
 }
 
 // PATCH /albums/:id { coverUrl?, title?, releaseDate? } — edit album fields.
-// Used by the studio to attach a cover URL after (or instead of) creation.
 export function updateAlbum(albumId, patch) {
   return api(`/albums/${albumId}`, {
     method: 'PATCH',
@@ -194,20 +152,16 @@ export function updateAlbum(albumId, patch) {
 }
 
 // PATCH /songs/:id — edit an owned song's title (and optionally track number).
-// Owner-gated on the backend. patch = { title?, trackNumber?, durationSeconds? }.
 export function updateSong(songId, patch) {
   return api(`/songs/${songId}`, { method: 'PATCH', body: patch }).then((res) => res.data);
 }
 
 // PATCH /artist/profile — update MY artist profile (stage name, bio, avatar).
-// Goes through requireOwnProfile on the backend. patch = { stageName?, bio?, avatarUrl? }.
 export function updateMyProfile(patch) {
   return api('/artist/profile', { method: 'PATCH', body: patch }).then((res) => res.data);
 }
-// ---- Admin catalog (manage_catalog permission) ----
 
 // GET /admin/catalog/artists?verified=true|false — list artist profiles.
-// Omit `verified` for all; pass false for the approval queue.
 export function adminListArtists({ verified, search, page = 1, limit = 50 } = {}) {
   const params = new URLSearchParams({ page, limit });
   if (verified !== undefined) params.set('verified', String(verified));
@@ -247,11 +201,27 @@ export function adminSetSongStatus(songId, status) {
   }).then((res) => res.data);
 }
 
+// PATCH /admin/catalog/songs/bulk-status { ids, status } -> { requested, updated, status }
+export function adminBulkSetSongStatus(ids, status) {
+  return api('/admin/catalog/songs/bulk-status', {
+    method: 'PATCH',
+    body: { ids, status },
+  }).then((res) => res.data);
+}
+
 // PATCH /admin/catalog/albums/:id/status { status } — admin force-set (bypasses ownership).
 export function adminSetAlbumStatus(albumId, status) {
   return api(`/admin/catalog/albums/${albumId}/status`, {
     method: 'PATCH',
     body: { status },
+  }).then((res) => res.data);
+}
+
+// PATCH /admin/catalog/albums/bulk-status { ids, status } -> { requested, updated, status }
+export function adminBulkSetAlbumStatus(ids, status) {
+  return api('/admin/catalog/albums/bulk-status', {
+    method: 'PATCH',
+    body: { ids, status },
   }).then((res) => res.data);
 }
 
@@ -265,11 +235,7 @@ export function adminDeleteAlbum(albumId) {
   return api(`/admin/catalog/albums/${albumId}`, { method: 'DELETE' }).then((res) => res.data);
 }
 
-// POST /songs — multipart upload. This CANNOT use api()/http, because those
-// set Content-Type: application/json. For a file we must let the browser set
-// Content-Type to multipart/form-data itself (with the boundary string), so we
-// use a bare axios call with withCredentials for the auth cookie. Field name
-// is 'audio' — it MUST match multer's upload.single('audio') on the backend.
+// POST /songs — multipart upload. 
 import axios from 'axios';
 
 export function uploadSong({ title, albumId, trackNumber, durationSeconds, genreIds, file }) {

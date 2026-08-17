@@ -10,6 +10,7 @@ import BookmarkRoundedIcon from '@mui/icons-material/BookmarkRounded';
 import BookmarkBorderRoundedIcon from '@mui/icons-material/BookmarkBorderRounded';
 import MediaCardShell from './MediaCardShell';
 import AddToPlaylistDialog from './AddToPlaylistDialog';
+import ShareButton from './ShareButton';
 import useSocialSong from '../store/hooks/useSocial';
 import { useDispatch } from 'react-redux';
 import { enqueueTrack } from '../store/slices/playerSlice';
@@ -23,16 +24,20 @@ const footerBtnSx = (activeColor) => ({
 
 export default function SongCard({
   songId,
+  songPublicId = null,   // opaque song handle — enables sharing to /play/:publicId
   title,
   subtitle,
   imageUrl,
   seed,
   artist,
-  album = null,          // { id, title } — renders a link row under the controls
+  album = null,          // { id, publicId, title } — renders a link row under the controls
+  showShare = false,     // opt-in: adds a share action to the footer row.
+                         // Default off so existing callers are unaffected —
+                         // this footer is a shared contract across four pages.
   isPlaying = false,
   onTogglePlay,
   onClick,
-  onAlbumClick,          // (albumId) => void
+  onAlbumClick,          // (albumRef) => void — receives the album's public id
   onArtistClick,         // (artist)  => void
 }) {
   const dispatch = useDispatch();
@@ -149,6 +154,18 @@ export default function SongCard({
             </IconButton>
           </span>
         </Tooltip>
+
+        {showShare && (
+          <ShareButton
+            kind="song"
+            songPublicId={songPublicId}
+            albumPublicId={album?.publicId}
+            albumId={album?.id}
+            title={title}
+            artistName={artist?.stageName}
+            sx={footerBtnSx()}
+          />
+        )}
       </Stack>
       {(album || artist?.username) && (
         <Stack
@@ -161,7 +178,7 @@ export default function SongCard({
               component="button"
               variant="caption"
               underline="hover"
-              onClick={swallow(() => onAlbumClick(album.id))}
+              onClick={swallow(() => onAlbumClick(album.publicId ?? album.id))}
               sx={{
                 color: 'text.secondary',
                 maxWidth: 80,

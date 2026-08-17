@@ -136,9 +136,7 @@ export default function ArtistPage() {
     else dispatch(playFromQueue({ queue: tracks, index: idx }));
   };
 
-  // Play a whole album from its card. The artist page only holds album metadata,
-  // not each album's tracklist, so we fetch the album's published songs and load
-  // them as the queue. Mirrors BrowsePage.onAlbumPlay.
+
   const onPlayAlbum = async (album) => {
     try {
       const full = await fetchAlbum(album.id);

@@ -1,142 +1,281 @@
-import { useState, useEffect, useCallback } from 'react';
-import {
-  Box, Paper, Typography, Stack, Tabs, Tab, Table, TableHead, TableBody,
-  TableRow, TableCell, TableContainer, Chip, Alert, Skeleton, TextField,
-  MenuItem, IconButton, Tooltip, Button, Snackbar, InputAdornment, Link,
-} from '@mui/material';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  Box, Typography, Stack, Alert, Skeleton, Avatar, Chip, Button,
+  List, ListItemButton, ListItemAvatar, ListItemText, IconButton, Tooltip, Link,
+  CircularProgress, TextField, InputAdornment, ToggleButton, ToggleButtonGroup,
+  Tabs, Tab,
+  alpha,
+} from '@mui/material';
+import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
+import PauseRoundedIcon from '@mui/icons-material/PauseRounded';
+import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
+import LibraryMusicRoundedIcon from '@mui/icons-material/LibraryMusicRounded';
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import UnarchiveRoundedIcon from '@mui/icons-material/UnarchiveRounded';
 import PublishRoundedIcon from '@mui/icons-material/PublishRounded';
+import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
-import AddRoundedIcon from '@mui/icons-material/AddRounded';
+import QueueMusicRoundedIcon from '@mui/icons-material/QueueMusicRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
-import {
-  adminListSongs, adminListAlbums,
-  adminSetSongStatus, adminSetAlbumStatus,
-  adminDeleteSong, adminDeleteAlbum,
-} from '../api/catalog';
+import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
+import { useSelector, useDispatch } from 'react-redux';
+import MediaCardShell from '../components/MediaCardShell';
+import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
+import { fetchMyCatalog, setSongStatus, setAlbumStatus, deleteSong, deleteAlbum } from '../api/catalog';
 import DeleteCatalogItemDialog from '../components/DeleteCatalogItemDialog';
-import AddGenreDialog from '../components/AddGenreDialog';
+import LyricsAction from '../components/LyricsAction';
+import { UPLOAD, BROWSE } from '../constants/route_constant';
 import { useAuth } from '../store/hooks/useAuth';
 import { PERMISSIONS } from '../auth/permissions';
-import { fmtDuration, fmtCount, fmtDate } from '../utils/format';
 import SearchField from '../components/SearchField';
 
-const STATUS_OPTIONS = ['', 'draft', 'published', 'archived'];
-const statusColor = (s) =>
-  s === 'published' ? 'success' : s === 'archived' ? 'default' : 'warning';
+const fmtDuration = (secs) => {
+  if (secs == null) return '—';
+  const m = Math.floor(secs / 60);
+  const s = String(secs % 60).padStart(2, '0');
+  return `${m}:${s}`;
+};
 
-// Admin catalog console. Two tabs (Songs / Albums), a status filter, a title
-// search, and per-row status actions. Every write hits the ADMIN endpoints,
-// which bypass ownership (requireMinLevel(ADMIN) + manage_catalog) — so an admin
-// can archive/publish ANYONE's catalog, which is exactly the requirement.
-export default function ManageCatalogPage() {
-  const { can } = useAuth();
+// pretty-print a YYYY-MM-DD release date. Returns null (not a dash) when absent
+// so callers can choose whether to render the row at all.
+const fmtDate = (iso) => {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+};
+
+const statusColor = (status) =>
+  status === 'published' ? 'success' : status === 'archived' ? 'default' : 'warning';
+
+// Shared frosted-glass action-pill style — hover-reveal icon buttons that fade
+// in on row hover (stays visible mid-write so the spinner doesn't vanish out
+// from under the pointer). Used by BOTH the album cards and the songs list so
+// the two tabs share one interaction language instead of the songs list
+// cluttering every row with permanently-visible icons while albums stay clean
+// until hovered.
+const pillSx = (t, role, visible, busy) => ({
+  width: 30,
+  height: 30,
+  color: `${role}.main`,
+  bgcolor: alpha(t.palette[role].main, 0.14),
+  border: `1px solid ${alpha(t.palette[role].main, 0.35)}`,
+  backdropFilter: 'blur(8px)',
+  WebkitBackdropFilter: 'blur(8px)',
+  boxShadow: `inset 0 1px 0 ${alpha('#fff', 0.15)}`,
+  opacity: visible || busy ? 1 : 0,
+  pointerEvents: visible || busy ? 'auto' : 'none',
+  transform: visible || busy ? 'scale(1)' : 'scale(0.9)',
+  transition: 'opacity .18s ease, transform .18s ease, background-color .18s ease',
+  '&:hover': {
+    bgcolor: alpha(t.palette[role].main, 0.24),
+    border: `1px solid ${alpha(t.palette[role].main, 0.5)}`,
+  },
+});
+
+// Case-insensitive substring match. Deliberately dumb — this filters an array
+// that's ALREADY in memory, so there's no query to optimize.
+const matches = (haystack, needle) =>
+  String(haystack || '').toLowerCase().includes(needle);
+
+export default function MyCatalogPage() {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
+  const { can, user } = useAuth();
 
-  const [tab, setTab] = useState('songs');      // 'songs' | 'albums'
-  const [status, setStatus] = useState('');     // '' = all
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const playingId = useSelector((s) => (s.player.isPlaying ? s.player.current?.id : null));
+  const loadedId = useSelector((s) => s.player.current?.id);
+
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);       // FIRST load only
+  const [refreshing, setRefreshing] = useState(false); // background refetch
   const [err, setErr] = useState(null);
-  const [busyId, setBusyId] = useState(null);   // row mid-write, to disable its buttons
+  const [busyId, setBusyId] = useState(null);   // which row is mid-write
+  const [hoverId, setHoverId] = useState(null);  // which album card is hovered (toggle reveal)
+  const [pendingDelete, setPendingDelete] = useState(null);
 
-  // Two search states: `search` is what's in the box (updates on every keystroke,
-  // so the input stays responsive), `debounced` is what we actually query with.
   const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
+  const [statusFilter, setStatusFilter] = useState(''); // '' = all
 
-  const [genreOpen, setGenreOpen] = useState(false);
-  const [toast, setToast] = useState('');
-   const [pendingDelete, setPendingDelete] = useState(null);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(search), 350);
-    return () => clearTimeout(t);
-  }, [search]);
+  const [contentTab, setContentTab] = useState('albums');
 
-  const load = useCallback(async () => {
-    setLoading(true); setErr(null);
+  const isSuperAdmin = user?.role === 'Super Admin';
+  const canUpload = can(PERMISSIONS.UPLOAD_SONGS) && !isSuperAdmin;
+
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+    setErr(null);
     try {
-      const args = {
-        status: status || undefined,
-        search: debounced || undefined,
-        limit: 100,
-      };
-      const data = tab === 'songs'
-        ? await adminListSongs(args)
-        : await adminListAlbums(args);
-      setRows(tab === 'songs' ? (data.songs || []) : (data.albums || []));
+      setData(await fetchMyCatalog());
     } catch (e) {
       setErr(e.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [tab, status, debounced]);
+  }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load]);   // first mount -> full skeleton
 
-  const setRowStatus = async (row, nextStatus) => {
-    setBusyId(row.id);
-    try {
-      if (tab === 'songs') await adminSetSongStatus(row.id, nextStatus);
-      else await adminSetAlbumStatus(row.id, nextStatus);
-      await load();
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusyId(null);
-    }
+  const needle = search.trim().toLowerCase();
+
+  const albums = useMemo(() => {
+    const all = data?.albums || [];
+    return all.filter((a) =>
+      (!statusFilter || a.status === statusFilter) &&
+      (!needle || matches(a.title, needle))
+    );
+  }, [data, needle, statusFilter]);
+
+  const songs = useMemo(() => {
+    const all = data?.songs || [];
+    return all.filter((s) =>
+      (!statusFilter || s.status === statusFilter) &&
+      (!needle || matches(s.title, needle) || matches(s.album?.title, needle))
+    );
+  }, [data, needle, statusFilter]);
+
+  const isFiltered = Boolean(needle || statusFilter);
+
+  const tracks = songs.map((s) => ({
+    id: s.id, title: s.title,
+    artist: s.artist ?? null,
+    coverUrl: s.coverUrl ?? null,
+  }));
+
+  const onPlaySong = (idx) => {
+    const track = tracks[idx];
+    if (loadedId === track.id) dispatch(togglePlay());
+    else dispatch(playFromQueue({ queue: tracks, index: idx }));
   };
-  const confirmDelete = async () => {
+
+  const changeSongStatus = async (song, next) => {
+    setBusyId(`song-${song.id}`);
+    try { await setSongStatus(song.id, next); await load({ silent: true }); }
+    catch (e) { setErr(e.message); }
+    finally { setBusyId(null); }
+  };
+
+  const changeAlbumStatus = async (album, next) => {
+    setBusyId(`album-${album.id}`);
+    try { await setAlbumStatus(album.id, next); await load({ silent: true }); }
+    catch (e) { setErr(e.message); }
+    finally { setBusyId(null); }
+  };
+
+ const confirmDelete = async (password) => {
     if (!pendingDelete) return;
     const { kind, item } = pendingDelete;
-    if (kind === 'album') await adminDeleteAlbum(item.id);
-    else await adminDeleteSong(item.id);
-    setToast(`Deleted "${item.title}"`);
-    await load();
-  };
-  const isSongs = tab === 'songs';
-
-  // Column definitions per tab. COLS used to be a hardcoded 4 shared by BOTHtabs — which happened to be right only because both tables had four columns. The moment they diverge (which is now), a hardcoded colSpan silently breaks the skeleton and empty-state rows. Deriving it from the header list means it can never drift again.
-  const songCols = ['Title', 'Artist', 'Album', 'Genres', 'Duration', 'Plays', 'Status', 'Actions'];
-  const albumCols = ['Title', 'Artist', 'Type', 'Tracks', 'Released', 'Status', 'Actions'];
-  const headers = isSongs ? songCols : albumCols;
-  const COLS = headers.length;
-
-  const emptyLabel = () => {
-    if (debounced) return `No ${tab} matching "${debounced}".`;
-    if (status) return `Nothing here with status "${status}".`;
-    return 'Nothing here.';
+    if (kind === 'album') await deleteAlbum(item.id, password);
+    else await deleteSong(item.id, password);
+    await load({ silent: true });
   };
 
-  // Shared between both tabs — the status lifecycle is identical for songs and
-  // albums, so the buttons are too.
-  const statusActions = (row) => {
-    const busy = busyId === row.id;
+  const songsInAlbum = (albumId) =>
+    (data?.songs || []).filter((s) => s.albumId === albumId).length;
 
-    const deleteBtn = can(PERMISSIONS.MANAGE_CATALOG) && (
+  if (loading) {
+    return (
+      <Box sx={{ pb: 12 }}>
+        <Skeleton width="30%" height={40} sx={{ mb: 2 }} />
+        <Stack direction="row" spacing={2}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} variant="rounded" width={190} height={280} sx={{ borderRadius: 3 }} />
+          ))}
+        </Stack>
+      </Box>
+    );
+  }
+
+  if (err) {
+    return <Box sx={{ pb: 12 }}><Alert severity="error">{err}</Alert></Box>;
+  }
+
+
+  if (!data?.isArtist) {
+    return (
+      <Box sx={{ pb: 12, textAlign: 'center', py: 8 }}>
+        <LibraryMusicRoundedIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
+        <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
+          Your library is empty
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+          {canUpload
+            ? 'Set up your artist profile and upload your first track to see it here.'
+            : 'Oops! It is empty here. Head to Browse to explore the catalog.'}
+        </Typography>
+        {canUpload ? (
+          <Button variant="contained" startIcon={<CloudUploadRoundedIcon />}
+            onClick={() => navigate(UPLOAD)}>
+            Go to Artist Studio
+          </Button>
+        ) : (
+          <Button variant="contained" startIcon={<QueueMusicRoundedIcon />}
+            onClick={() => navigate(BROWSE)}>
+            Browse music
+          </Button>
+        )}
+      </Box>
+    );
+  }
+
+  const songActions = (s, visible) => {
+    const busy = busyId === `song-${s.id}`;
+
+    const deleteBtn = (
       <Tooltip title="Delete permanently">
         <span>
-          <IconButton size="small" color="error" disabled={busy}
-            onClick={() => setPendingDelete({ kind: isSongs ? 'song' : 'album', item: row })}>
+          <IconButton size="small" disabled={busy}
+            onClick={(e) => { e.stopPropagation(); setPendingDelete({ kind: 'song', item: s }); }}
+            sx={(t) => pillSx(t, 'error', visible, busy)}>
             <DeleteOutlineRoundedIcon fontSize="small" />
           </IconButton>
         </span>
       </Tooltip>
     );
 
-    if (row.status === 'archived') {
+    // LyricsAction owns its own icon(s) internally across several states
+    // (pending/completed/failed); wrapping it rather than restyling its
+    // insides is what keeps this hover-reveal behaviour a one-line addition
+    // instead of a second styling surface to keep in sync.
+    const lyricsWrap = (
+      <Box
+        sx={{
+          opacity: visible || busy ? 1 : 0,
+          pointerEvents: visible || busy ? 'auto' : 'none',
+          transition: 'opacity .18s ease',
+        }}
+      >
+        <LyricsAction song={s} />
+      </Box>
+    );
+
+    if (s.isLocked) {
+      return (
+        <>
+          <Tooltip title="Removed by a moderator. Contact an admin to appeal.">
+            <GavelRoundedIcon fontSize="small" sx={{ color: 'error.main', mr: 0.5 }} />
+          </Tooltip>
+          {deleteBtn}
+        </>
+      );
+    }
+
+    if (s.status === 'archived') {
       return (
         <>
           <Tooltip title="Restore to published">
             <span>
-              <IconButton size="small" disabled={busy}
-                onClick={() => setRowStatus(row, 'published')}>
-                <UnarchiveRoundedIcon fontSize="small" />
+              <IconButton disabled={busy}
+                onClick={(e) => { e.stopPropagation(); changeSongStatus(s, 'published'); }}
+                sx={(t) => pillSx(t, 'success', visible, busy)}>
+                {busy ? <CircularProgress size={14} color="inherit" /> : <UnarchiveRoundedIcon fontSize="small" />}
               </IconButton>
             </span>
           </Tooltip>
+          {lyricsWrap}
           {deleteBtn}
         </>
       );
@@ -144,191 +283,298 @@ export default function ManageCatalogPage() {
 
     return (
       <>
-        {row.status === 'draft' && (
+        {s.status === 'draft' && (
           <Tooltip title="Publish">
             <span>
-              <IconButton size="small" disabled={busy}
-                onClick={() => setRowStatus(row, 'published')}>
-                <PublishRoundedIcon fontSize="small" />
+              <IconButton disabled={busy}
+                onClick={(e) => { e.stopPropagation(); changeSongStatus(s, 'published'); }}
+                sx={(t) => pillSx(t, 'success', visible, busy)}>
+                {busy ? <CircularProgress size={14} color="inherit" /> : <PublishRoundedIcon fontSize="small" />}
               </IconButton>
             </span>
           </Tooltip>
         )}
         <Tooltip title="Archive">
           <span>
-            <IconButton size="small" color="warning" disabled={busy}
-              onClick={() => setRowStatus(row, 'archived')}>
-              <Inventory2RoundedIcon fontSize="small" />
+            <IconButton disabled={busy}
+              onClick={(e) => { e.stopPropagation(); changeSongStatus(s, 'archived'); }}
+              sx={(t) => pillSx(t, 'warning', visible, busy)}>
+              {busy ? <CircularProgress size={14} color="inherit" /> : <Inventory2RoundedIcon fontSize="small" />}
             </IconButton>
           </span>
         </Tooltip>
+        {lyricsWrap}
         {deleteBtn}
       </>
     );
   };
 
-  return (
-    <Box>
-      <Typography variant="h4" sx={{ fontWeight: 800, mb: 0.5 }}>Manage Catalog</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Archive, restore, or publish any artist's songs and albums.
-      </Typography>
+  // Status toggle — an icon-only frosted "liquid-glass" pill that fades in on card hover. draft -> publish, published -> archive, archived -> republish.
+  const albumToggle = (a, visible) => {
+    const busy = busyId === `album-${a.id}`;
 
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}
-        sx={{ mb: 2, justifyContent: 'space-between', alignItems: { sm: 'center' } }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)}>
-          <Tab value="songs" label="Songs" />
-          <Tab value="albums" label="Albums" />
-        </Tabs>
+    if (a.isLocked) {
+      return (
+        <Tooltip title="Removed by a moderator. Contact an admin to appeal.">
+          <GavelRoundedIcon fontSize="small" sx={{ color: 'error.main' }} />
+        </Tooltip>
+      );
+    }
+
+    const map = {
+      draft:     { title: 'Publish album',   icon: <PublishRoundedIcon fontSize="small" />,   next: 'published', role: 'success' },
+      published: { title: 'Archive album',   icon: <Inventory2RoundedIcon fontSize="small" />, next: 'archived',  role: 'warning' },
+      archived:  { title: 'Republish album', icon: <UnarchiveRoundedIcon fontSize="small" />,  next: 'published', role: 'success' },
+    };
+    const cfg = map[a.status] || map.draft;
+
+    return (
+      <Tooltip title={cfg.title}>
+        <IconButton
+          onClick={() => changeAlbumStatus(a, cfg.next)}
+          disabled={busy}
+          size="small"
+          aria-label={cfg.title}
+          sx={(t) => pillSx(t, cfg.role, visible, busy)}
+        >
+          {busy ? <CircularProgress size={14} color="inherit" /> : cfg.icon}
+        </IconButton>
+      </Tooltip>
+    );
+  };
+
+  return (
+    <Box sx={{ pb: 16 }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}
+        sx={{ justifyContent: 'space-between', alignItems: { md: 'center' }, mb: 2 }}>
+        <Box>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+            <Typography variant="h4" sx={{ fontWeight: 800 }}>Your Library</Typography>
+            {/* A quiet spinner while a status write settles — the page no longer
+                blanks, so this is the only hint that a refetch is in flight. */}
+            {refreshing && <CircularProgress size={16} />}
+          </Stack>
+          <Typography variant="body2" color="text.secondary">
+            Everything you've created: your drafts, published, and archived
+          </Typography>
+        </Box>
 
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}
           sx={{ alignItems: { sm: 'center' } }}>
           <SearchField
-            placeholder="Search by title…"
+            placeholder="Search your catalog…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onClear={() => setSearch('')}
             sx={{ width: { xs: '100%', sm: 240 } }}
           />
 
-          <TextField select size="small" label="Status" value={status}
-            onChange={(e) => setStatus(e.target.value)} sx={{ width: 180 }}>
-            {STATUS_OPTIONS.map((s) => (
-              <MenuItem key={s || 'all'} value={s}>{s === '' ? 'All statuses' : s}</MenuItem>
-            ))}
-          </TextField>
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={statusFilter}
+            onChange={(_, v) => setStatusFilter(v ?? '')}
+            aria-label="filter by status"
+          >
+            <ToggleButton value="">All</ToggleButton>
+            <ToggleButton value="draft">Drafts</ToggleButton>
+            <ToggleButton value="published">Live</ToggleButton>
+            <ToggleButton value="archived">Archived</ToggleButton>
+          </ToggleButtonGroup>
 
-          {can(PERMISSIONS.MANAGE_CATALOG) && (
-            <Button
-              variant="outlined"
-              startIcon={<AddRoundedIcon />}
-              onClick={() => setGenreOpen(true)}
-              sx={{ whiteSpace: 'nowrap' }}
-            >
-              Add genre
+          {canUpload && (
+            <Button variant="outlined" startIcon={<CloudUploadRoundedIcon />}
+              onClick={() => navigate(UPLOAD)} sx={{ whiteSpace: 'nowrap' }}>
+              Upload
             </Button>
           )}
         </Stack>
       </Stack>
 
-      {err && <Alert severity="error" sx={{ mb: 2 }}>{err}</Alert>}
+      {/* Counts live in the tab labels so the filtered/total split is visible
+          on BOTH tabs at once — you can see the songs tab has matches without
+          leaving the albums tab. */}
+      <Tabs
+        value={contentTab}
+        onChange={(_, value) => setContentTab(value)}
+        sx={{ mt: 3, mb: 2, borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Tab
+          value="albums"
+          label={`Albums (${isFiltered ? `${albums.length} of ${data.albums.length}` : data.albums.length})`}
+          sx={{ textTransform: 'none', fontWeight: 700 }}
+        />
+        <Tab
+          value="songs"
+          label={`Songs (${isFiltered ? `${songs.length} of ${data.songs.length}` : data.songs.length})`}
+          sx={{ textTransform: 'none', fontWeight: 700 }}
+        />
+      </Tabs>
 
-      <TableContainer component={Paper} variant="outlined">
-        <Table>
-          <TableHead>
-            <TableRow>
-              {headers.map((h) => (
-                <TableCell
-                  key={h}
-                  align={['Actions', 'Plays', 'Tracks'].includes(h) ? 'right' : 'left'}
-                >
-                  {h}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading ? (
-              Array.from({ length: 6 }).map((_, i) => (
-                <TableRow key={i}>
-                  <TableCell colSpan={COLS}><Skeleton height={32} /></TableCell>
-                </TableRow>
-              ))
-            ) : rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={COLS}>
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>
-                    {emptyLabel()}
+      {contentTab === 'albums' && (
+        <>
+      {albums.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {isFiltered
+            ? `No albums match your filters.${songs.length > 0 ? ` ${songs.length} song${songs.length === 1 ? '' : 's'} matched — check the Songs tab.` : ''}`
+            : 'No albums yet.'}
+        </Typography>
+      ) : (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+          {albums.map((a) => {
+            const released = fmtDate(a.releaseDate);
+            return (
+              <Box
+                key={a.id}
+                onMouseEnter={() => setHoverId(a.id)}
+                onMouseLeave={() => setHoverId(null)}
+                sx={{
+                  width: 180,
+                  borderRadius: 3,
+                  overflow: 'hidden',              // one clip owns all four corners
+                  border: 1,
+                  borderColor: (t) => alpha(t.palette.text.primary, 0.12),
+                  bgcolor: 'action.hover',
+                  transition: 'border-color .18s ease',
+                  '&:hover': { borderColor: (t) => alpha(t.palette.text.primary, 0.22) },
+                }}
+              >
+                <MediaCardShell
+                  bare
+                  variant="album"
+                  seed={a.id}
+                  imageUrl={a.coverUrl || undefined}
+                  title={a.title}
+                  onClick={() => navigate(`/album/${a.publicId ?? a.id}`)}
+                />
+
+                <Box sx={{ p: 1.25 }}>
+                  <Typography
+                    variant="subtitle2"
+                    noWrap
+                    title={a.title}
+                    sx={{ fontWeight: 700, lineHeight: 1.3 }}
+                  >
+                    {a.title}
                   </Typography>
-                </TableCell>
-              </TableRow>
-            ) : isSongs ? (
-              rows.map((row) => (
-                <TableRow key={row.id} hover>
-                  <TableCell sx={{ fontWeight: 600 }}>{row.title}</TableCell>
-                  <TableCell>{row.artist?.stageName ?? '—'}</TableCell>
-                  <TableCell>
-                    {/* The album used to be a bare integer the admin couldn't read
-                        or click. Now it's a link to the album it belongs to. */}
-                    {row.album ? (
-                      <Link
-                        component="button"
-                        variant="body2"
-                        underline="hover"
-                        onClick={() => navigate(`/album/${row.album.id}`)}
-                      >
-                        {row.album.title}
+
+                  <Stack direction="row" spacing={0.75}
+                    sx={{ alignItems: 'center', mt: 0.5, color: 'text.secondary' }}>
+                    <Box
+                      component="span"
+                      sx={(t) => {
+                        const c = statusColor(a.status);
+                        const isNeutral = c === 'default';
+                        return {
+                          px: 0.75, py: 0.125,
+                          borderRadius: 1,
+                          fontSize: 11, fontWeight: 600, lineHeight: 1.6,
+                          textTransform: 'capitalize',
+                          color: isNeutral ? 'text.secondary' : `${c}.main`,
+                          bgcolor: isNeutral
+                            ? t.palette.action.selected
+                            : alpha(t.palette[c].main, 0.16),
+                        };
+                      }}
+                    >
+                      {a.status}
+                    </Box>
+                    <Typography variant="caption" noWrap>
+                      {a.isSingle ? 'Single' : 'Album'}
+                    </Typography>
+                  </Stack>
+
+                  <Stack direction="row" spacing={0.5}
+                    sx={{ alignItems: 'center', justifyContent: 'space-between', mt: 0.5, minHeight: 32 }}>
+                    <Stack direction="row" spacing={0.5}
+                      sx={{ alignItems: 'center', color: 'text.disabled', flex: 1, minWidth: 0 }}>
+                      <CalendarMonthRoundedIcon sx={{ fontSize: 14, flexShrink: 0 }} />
+                      <Typography variant="caption" sx={{ lineHeight: 1.3 }}>
+                        {released || 'No release date'}
+                      </Typography>
+                    </Stack>
+                    <Stack direction="row" spacing={0.25} sx={{ alignItems: 'center' }}>
+                      {albumToggle(a, hoverId === a.id)}
+                      <Tooltip title="Delete album permanently">
+                        <IconButton
+                          size="small"
+                          aria-label="Delete album permanently"
+                          onClick={() => setPendingDelete({ kind: 'album', item: a })}
+                          sx={(t) => pillSx(t, 'error', hoverId === a.id, false)}
+                        >
+                          <DeleteOutlineRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
+                  </Stack>
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+        </>
+      )}
+
+      {contentTab === 'songs' && (
+        <>
+      {songs.length === 0 ? (
+        <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
+          {isFiltered
+            ? `No songs match your filters.${albums.length > 0 ? ` ${albums.length} album${albums.length === 1 ? '' : 's'} matched — check the Albums tab.` : ''}`
+            : 'No songs yet.'}
+        </Typography>
+      ) : (
+        <List>
+          {songs.map((s, idx) => {
+            const isThis = playingId === s.id;
+            return (
+              <ListItemButton
+                key={s.id}
+                onClick={() => onPlaySong(idx)}
+                onMouseEnter={() => setHoverId(s.id)}
+                onMouseLeave={() => setHoverId(null)}
+                sx={{ borderRadius: 2 }}
+              >
+                <ListItemAvatar>
+                  <Avatar variant="rounded" src={s.coverUrl || undefined}
+                    sx={{ bgcolor: isThis ? 'primary.main' : 'action.selected' }}>
+                    {isThis ? <PauseRoundedIcon /> : <PlayArrowRoundedIcon />}
+                  </Avatar>
+                </ListItemAvatar>
+                <ListItemText
+                  primary={s.title}
+                  secondary={
+                    s.album ? (
+                      <Link component="button" variant="body2" underline="hover"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/album/${s.album.publicId ?? s.album.id}`); }}>
+                        {s.album.title}
                       </Link>
-                    ) : '—'}
-                  </TableCell>
-                  <TableCell>
-                    {row.genres?.length ? (
-                      <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
-                        {row.genres.map((g) => (
-                          <Chip key={g.id} size="small" label={g.name} variant="outlined" />
-                        ))}
-                      </Stack>
-                    ) : (
-                      <Typography variant="caption" color="text.disabled">None</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>{fmtDuration(row.durationSeconds)}</TableCell>
-                  <TableCell align="right">{fmtCount(row.playCount)}</TableCell>
-                  <TableCell>
-                    <Chip size="small" label={row.status}
-                      color={statusColor(row.status)} variant="outlined" />
-                  </TableCell>
-                  <TableCell align="right">{statusActions(row)}</TableCell>
-                </TableRow>
-              ))
-            ) : (
-              rows.map((row) => (
-                <TableRow key={row.id} hover>
-                  <TableCell sx={{ fontWeight: 600 }}>{row.title}</TableCell>
-                  <TableCell>{row.artist?.stageName ?? '—'}</TableCell>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      label={row.isSingle ? 'Single' : 'Album'}
-                      variant="outlined"
-                    />
-                  </TableCell>
-                  <TableCell align="right">{fmtCount(row.trackCount)}</TableCell>
-                  <TableCell>{fmtDate(row.releaseDate)}</TableCell>
-                  <TableCell>
-                    <Chip size="small" label={row.status}
-                      color={statusColor(row.status)} variant="outlined" />
-                  </TableCell>
-                  <TableCell align="right">{statusActions(row)}</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-       <DeleteCatalogItemDialog
-       requirePassword = {false}
+                    ) : fmtDuration(s.durationSeconds)
+                  }
+                  slotProps={{ primary: { fontWeight: 600 } }}
+                />
+                <Chip size="small" label={s.status} color={statusColor(s.status)}
+                  variant="outlined" sx={{ mr: 1, textTransform: 'capitalize' }} />
+                {songActions(s, hoverId === s.id)}
+              </ListItemButton>
+            );
+          })}
+        </List>
+      )}
+        </>
+      )}
+
+      <DeleteCatalogItemDialog
+      requirePassword
         open={Boolean(pendingDelete)}
         kind={pendingDelete?.kind}
         target={pendingDelete?.item}
         songsAtRisk={
-          pendingDelete?.kind === 'album' ? (pendingDelete.item.trackCount || 0) : 0
+          pendingDelete?.kind === 'album' ? songsInAlbum(pendingDelete.item.id) : 0
         }
         onClose={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
-      />    
-      <AddGenreDialog
-        open={genreOpen}
-        onClose={() => setGenreOpen(false)}
-        onCreated={(g) => setToast(`Genre "${g.name}" added`)}
-      />
-
-      <Snackbar
-        open={Boolean(toast)}
-        autoHideDuration={3000}
-        onClose={() => setToast('')}
-        message={toast}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
     </Box>
   );

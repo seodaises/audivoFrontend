@@ -18,16 +18,13 @@ const initialState = {
   repeat: 'off',   // one of REPEAT_MODES
   shuffle: false,
 
-  // Shuffle keeps the queue UNTOUCHED and walks it through a permutation of its
-  // indices instead. That way turning shuffle off restores the real order for
-  // free — the queue was never scrambled, only the path through it was. `order`
-  // is the list of queue indices in play order; `orderPos` is where we are in it.
   order: [],       // e.g. [3, 0, 2, 1] — queue indices in shuffled play order
   orderPos: -1,    // position within `order`, or -1
+
+  focused: false,  // full-viewport focused player overlay
+  pip: false,      // floating draggable/resizable picture-in-picture card
 };
 
-// Fisher–Yates over [0..n-1], but with `firstIndex` pinned to the front so that
-// turning shuffle on doesn't yank you off the track you're already playing.
 const shuffledIndices = (n, firstIndex) => {
   const arr = Array.from({ length: n }, (_, i) => i);
   for (let i = arr.length - 1; i > 0; i -= 1) {
@@ -65,9 +62,6 @@ const loadAt = (state, queue, index) => {
   state.orderPos = state.order.indexOf(index);
 };
 
-// The shared advance step used by BOTH next() and ended(). `auto` is true only
-// when a track ended on its own — that's the one case where repeat-one replays
-// rather than moving on. Mutates state.
 const advance = (state, { auto }) => {
   if (state.index < 0) return;
 
@@ -226,9 +220,6 @@ const playerSlice = createSlice({
       rebuildOrder(state, 0);
     },
 
-    // Play from a LIST: the view hands over its visible tracks plus the index
-    // of the one clicked. This is what makes skip/prev meaningful — the queue
-    // is "whatever view you started playback from".
     playFromQueue(state, action) {
       const { queue, index } = action.payload;
       if (!Array.isArray(queue) || index < 0 || index >= queue.length) return;
@@ -293,6 +284,13 @@ const playerSlice = createSlice({
       advance(state, { auto: true });
     },
 
+    openFocused(state) { state.focused = true; state.pip = false; },
+    closeFocused(state) { state.focused = false; },
+    toggleFocused(state) { state.focused = !state.focused; if (state.focused) state.pip = false; },
+    openPip(state) { state.pip = true; state.focused = false; },
+    closePip(state) { state.pip = false; },
+    togglePip(state) { state.pip = !state.pip; if (state.pip) state.focused = false; },
+
     // Full teardown — used on logout so audio stops and the bar disappears.
     reset() {
       return initialState;
@@ -306,6 +304,7 @@ export const {
   pause, resume, togglePlay,
   cycleRepeat, toggleShuffle,
   setProgress, setDuration, requestSeek, clearSeek, ended, reset,
+  openFocused, closeFocused, toggleFocused, openPip, closePip, togglePip,
 } = playerSlice.actions;
 
 export default playerSlice.reducer;

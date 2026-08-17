@@ -330,6 +330,11 @@ export default function ArtistStudioPage() {
     });
 
     const publishing = releaseMode === 'publish';
+    const anyPublished = publishing && tracks.some((t) => t.publish);
+    if (anyPublished) {
+      await setAlbumStatus(album.id, 'published');
+    }
+
     setProgress({ done: 0, total: tracks.length });
     for (let i = 0; i < tracks.length; i += 1) {
       const t = tracks[i];
@@ -345,11 +350,6 @@ export default function ArtistStudioPage() {
         await setSongStatus(created.id, 'published');
       }
       setProgress({ done: i + 1, total: tracks.length });
-    }
-
-    const anyPublished = publishing && tracks.some((t) => t.publish);
-    if (anyPublished) {
-      await setAlbumStatus(album.id, 'published');
     }
 
     if (releaseMode === 'schedule') {

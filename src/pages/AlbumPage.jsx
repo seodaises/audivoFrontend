@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Typography, Stack, Alert, Skeleton, Avatar, Chip, Divider, Button,
   List, ListItemButton, ListItemAvatar, ListItemText, IconButton, Tooltip, Link,
@@ -23,12 +23,15 @@ import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
 import FavoriteBorderRoundedIcon from '@mui/icons-material/FavoriteBorderRounded';
 import AddToPlaylistDialog from '../components/AddToPlaylistDialog';
 import CommentSection from '../components/CommentSection';
+import ShareButton from '../components/ShareButton';
+import SongLyricsButton from '../components/SongLyricsButton';
 import useSocialSong from '../store/hooks/useSocial';
 import { useSelector, useDispatch } from 'react-redux';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
 import {
   fetchAlbum, updateAlbum, updateSong, setSongStatus, uploadSong, fetchGenres,
 } from '../api/catalog';
+import { useCoverAccentColor } from '../store/hooks/useCoverAccentColor';
 
 const fmtDuration = (secs) => {
   if (secs == null) return '—';
@@ -82,6 +85,7 @@ function TrackLikeButton({ songId, title, visible }) {
 export default function AlbumPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const dispatch = useDispatch();
 
   const playingId = useSelector((s) => (s.player.isPlaying ? s.player.current?.id : null));
@@ -92,6 +96,12 @@ export default function AlbumPage() {
   const [err, setErr] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
+  // Called unconditionally (before the loading/error early-returns below) —
+  // hooks can't be conditional. Resolves null until extraction succeeds, or
+  // permanently if the cover's host blocks it; the hero falls back to the
+  // original static gradient either way.
+  const accentColor = useCoverAccentColor(album?.coverUrl || null);
+
   const [editAlbumOpen, setEditAlbumOpen] = useState(false);
   const [addSongOpen, setAddSongOpen] = useState(false);
   const [editSong, setEditSong] = useState(null);
@@ -99,6 +109,11 @@ export default function AlbumPage() {
 
   const [playlistSong, setPlaylistSong] = useState(null);
   const [commentSong, setCommentSong] = useState(null);
+  const [highlightCommentId, setHighlightCommentId] = useState(null);
+  const closeComments = useCallback(() => {
+    setCommentSong(null);
+    setHighlightCommentId(null);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
@@ -112,6 +127,25 @@ export default function AlbumPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handledKeyRef = useRef(null);
+  useEffect(() => {
+    if (!album) return;
+    if (handledKeyRef.current === location.key) return;
+    const st = location.state;
+    if (st && st.openCommentsForSongId) {
+      handledKeyRef.current = location.key;
+      const song = (album.songs || []).find(
+        (s) => String(s.id) === String(st.openCommentsForSongId)
+      );
+      if (song) {
+        setCommentSong(song);
+        setHighlightCommentId(st.highlightCommentId ?? null);
+      }
+      // Clear the state so a refresh or back-nav doesn't reopen the dialog.
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [album, location, navigate]);
 
   const tracks = (album?.songs || []).map((s) => ({
     id: s.id, title: s.title,
@@ -202,8 +236,10 @@ export default function AlbumPage() {
       <Box
         sx={{
           position: 'relative', borderRadius: 4, p: { xs: 2, sm: 3 }, mb: 3,
-          background: (t) =>
-            `linear-gradient(135deg, ${t.palette.primary.main}22, ${t.palette.background.paper} 70%)`,
+          background: (t) => accentColor
+            ? `linear-gradient(135deg, ${accentColor}33, ${t.palette.background.paper} 75%)`
+            : `linear-gradient(135deg, ${t.palette.primary.main}22, ${t.palette.background.paper} 70%)`,
+          transition: 'background 0.4s ease',
         }}
       >
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} sx={{ alignItems: { sm: 'flex-end' } }}>
@@ -241,6 +277,15 @@ export default function AlbumPage() {
                   <Typography variant="body2">{fmtDate(album.releaseDate)}</Typography>
                 </Stack>
               )}
+              {album.status === 'published' && (
+                <ShareButton
+                  kind="album"
+                  albumPublicId={album.publicId}
+                  albumId={album.id}
+                  title={album.title}
+                  artistName={album.artist?.stageName}
+                />
+              )}
             </Stack>
 
             {album.description && (
@@ -258,14 +303,16 @@ export default function AlbumPage() {
                 >
                   Edit album
                 </Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  startIcon={<AddRoundedIcon />}
-                  onClick={() => setAddSongOpen(true)}
-                >
-                  Add song
-                </Button>
+                {!(album.isSingle && (album.songs?.length ?? 0) >= 1) && (
+                  <Button
+                    size="small"
+                    variant="contained"
+                    startIcon={<AddRoundedIcon />}
+                    onClick={() => setAddSongOpen(true)}
+                  >
+                    Add song
+                  </Button>
+                )}
               </Stack>
             )}
           </Box>
@@ -293,10 +340,7 @@ export default function AlbumPage() {
                       src={album.coverUrl || undefined}
                       sx={{ width: 40, height: 40, bgcolor: 'action.selected' }}
                     />
-                    {/* Play/pause overlay: always shown while this track is the
-                        active one (so you can tell what's playing at a glance),
-                        otherwise only on hover — same reveal pattern AlbumCard
-                        uses for its play button. */}
+                  
                     {(isThis || hoverId === s.id) && (
                       <Box
                         sx={{
@@ -347,6 +391,24 @@ export default function AlbumPage() {
                         <ChatBubbleOutlineRoundedIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
+                  )}
+                  {s.status === 'published' && (
+                    <SongLyricsButton song={s} visible={hoverId === s.id} />
+                  )}
+                  {s.status === 'published' && (
+                    <ShareButton
+                      kind="song"
+                      songPublicId={s.publicId}
+                      albumPublicId={album.publicId}
+                      albumId={album.id}
+                      title={s.title}
+                      artistName={album.artist?.stageName}
+                      sx={{
+                        opacity: hoverId === s.id ? 1 : 0,
+                        pointerEvents: hoverId === s.id ? 'auto' : 'none',
+                        transition: 'opacity .18s ease',
+                      }}
+                    />
                   )}
 
                   {owner && (
@@ -407,16 +469,22 @@ export default function AlbumPage() {
       />
       <Dialog
         open={Boolean(commentSong)}
-        onClose={() => setCommentSong(null)}
+        onClose={closeComments}
         fullWidth
         maxWidth="sm"
       >
         <DialogTitle sx={{ pb: 1 }}>{commentSong?.title}</DialogTitle>
         <DialogContent dividers>
-          {commentSong && <CommentSection songId={commentSong.id} isSongOwner={owner} />}
+          {commentSong && (
+            <CommentSection
+              songId={commentSong.id}
+              isSongOwner={owner}
+              highlightCommentId={highlightCommentId}
+            />
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCommentSong(null)}>Close</Button>
+          <Button onClick={closeComments}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>

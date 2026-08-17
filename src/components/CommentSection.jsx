@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Stack, Typography, TextField, Button, Avatar, IconButton,
   Alert, Skeleton, Chip, Tooltip, Divider,
@@ -15,22 +15,28 @@ import {
   fetchComments, postComment, deleteComment, setCommentStatus,
 } from '../api/comments';
 
-function CommentRow({ comment, currentUserId, canModerate, canDeleteAny, busyId, onReply, onDelete, onHide, onRestore, isReply = false }) {
+function CommentRow({ comment, currentUserId, canModerate, canDeleteAny, busyId, onReply, onDelete, onHide, onRestore, isReply = false, highlight = false, rowRef = null }) {
   const author = comment.author;                       // { id, displayName, avatarUrl, isDeleted } | null
   const mine = !!currentUserId && author?.id === currentUserId;
   const busy = busyId === comment.id;
 
-  // Three levels deep, flattened: root -> reply -> reply-to-a-reply, all
-  // rendered at the same indent under the root. `comment.replyingTo` only
-  // ever shows up on a reply-to-a-reply (the backend omits it for a plain
-  // reply-to-root, since that's the default and needs no annotation) — so
-  // its presence IS the signal that this row is already at the depth cap.
-  // A top-level comment can always be replied to; a reply can be replied to
-  // only if it's NOT already a reply-to-a-reply.
   const canReply = !isReply || !comment.replyingTo;
 
   return (
-    <Box sx={{ pl: isReply ? { xs: 4, sm: 6 } : 0 }}>
+    <Box
+      ref={rowRef}
+      sx={{
+        pl: isReply ? { xs: 4, sm: 6 } : 0,
+        borderRadius: 2,
+        transition: 'background-color .5s ease, outline-color .5s ease',
+        outline: '2px solid transparent',
+        outlineOffset: 3,
+        ...(highlight && {
+          bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(224,152,63,0.16)' : 'rgba(181,101,29,0.10)'),
+          outlineColor: (t) => t.palette.primary.main,
+        }),
+      }}
+    >
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'flex-start' }}>
         <Avatar src={author?.avatarUrl || undefined} sx={{ width: 32, height: 32, mt: 0.5 }}>
           {(author?.displayName || '?')[0]}
@@ -51,9 +57,6 @@ function CommentRow({ comment, currentUserId, canModerate, canDeleteAny, busyId,
             )}
           </Stack>
 
-          {/* Flattened rendering means this reply sits at the same indent as
-              a plain reply — this line is the only thing that says it was
-              actually answering a REPLY, not the root comment. */}
           {comment.replyingTo && (
             <Typography variant="caption" color="primary.main" sx={{ display: 'block', fontWeight: 600 }}>
               Replying to @{comment.replyingTo.author?.displayName || 'a deleted comment'}
@@ -131,23 +134,9 @@ function CommentRow({ comment, currentUserId, canModerate, canDeleteAny, busyId,
   );
 }
 
-export default function CommentSection({ songId, isSongOwner = false }) {
+export default function CommentSection({ songId, isSongOwner = false, highlightCommentId = null }) {
   const { user, can } = useAuth();
   const canModerate = can(PERMISSIONS.MODERATE_COMMENTS);
-
-  // Who may delete someone ELSE's comment. This mirrors the backend's three
-  // tiers in commentService.deleteComment — the UI must not offer a button the
-  // server will reject, nor hide one it would allow:
-  //
-  //   moderator          — global, any comment anywhere
-  //   delete_comments +
-  //     manage_users     — admin-tier, global
-  //   delete_comments    — artist-tier, ONLY on songs they own
-  //
-  // The artist tier needs song ownership, which this component can't know on
-  // its own (it only receives a songId), so the page passes `isSongOwner` down.
-  // Getting this wrong is safe in one direction only: the server is still the
-  // authority and will 403 anything it disagrees with.
   const canDeleteAny =
     canModerate ||
     (can(PERMISSIONS.DELETE_COMMENTS) &&
@@ -158,14 +147,14 @@ export default function CommentSection({ songId, isSongOwner = false }) {
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState(null);
 
-  // Composer state. `replyTo` holds the parent comment when replying, null for a
-  // top-level post — one composer drives both, like AlbumPage's one-dialog idiom.
+ 
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [posting, setPosting] = useState(false);
+  
+  const [activeHighlight, setActiveHighlight] = useState(null);
+  const highlightRef = useRef(null);
 
-  // silent skips the skeleton so a hide/restore/delete doesn't flash the thread
-  // white — same pattern as ModeratePage and the catalog status writes.
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     setErr('');
@@ -180,6 +169,21 @@ export default function CommentSection({ songId, isSongOwner = false }) {
   }, [songId]);
 
   useEffect(() => { load(); }, [load]);
+
+ 
+  useEffect(() => {
+    setActiveHighlight(highlightCommentId != null ? String(highlightCommentId) : null);
+  }, [highlightCommentId]);
+
+
+  useEffect(() => {
+    if (!activeHighlight || loading) return;
+    if (highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    const t = setTimeout(() => setActiveHighlight(null), 4000);
+    return () => clearTimeout(t);
+  }, [activeHighlight, loading, items]);
 
   const submit = async () => {
     const body = draft.trim();
@@ -198,9 +202,6 @@ export default function CommentSection({ songId, isSongOwner = false }) {
     }
   };
 
-  // `isOthers` is passed by the row so this can confirm only when the act is
-  // destructive to someone else. Withdrawing your own comment needs no gate;
-  // removing a stranger's does — and the delete is a tombstone the UI can't undo.
   const remove = async (id, isOthers = false) => {
     if (isOthers && !window.confirm(
       'Delete this comment? The author will not be able to recover it.\n\n'
@@ -242,6 +243,9 @@ export default function CommentSection({ songId, isSongOwner = false }) {
     onHide: (id) => moderate(id, 'hidden'),
     onRestore: (id) => moderate(id, 'visible'),
   };
+
+  // Is this the comment a notification sent us to?
+  const isHighlighted = (id) => activeHighlight != null && String(id) === activeHighlight;
 
   return (
     <Box>
@@ -298,11 +302,23 @@ export default function CommentSection({ songId, isSongOwner = false }) {
         <Stack spacing={2.5} divider={<Divider flexItem />}>
           {items.map((c) => (
             <Box key={c.id}>
-              <CommentRow comment={c} {...rowProps} />
+              <CommentRow
+                comment={c}
+                {...rowProps}
+                highlight={isHighlighted(c.id)}
+                rowRef={isHighlighted(c.id) ? highlightRef : null}
+              />
               {c.replies?.length > 0 && (
                 <Stack spacing={2} sx={{ mt: 2 }}>
                   {c.replies.map((r) => (
-                    <CommentRow key={r.id} comment={r} isReply {...rowProps} />
+                    <CommentRow
+                      key={r.id}
+                      comment={r}
+                      isReply
+                      {...rowProps}
+                      highlight={isHighlighted(r.id)}
+                      rowRef={isHighlighted(r.id) ? highlightRef : null}
+                    />
                   ))}
                 </Stack>
               )}

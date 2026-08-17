@@ -32,10 +32,10 @@ const fmtDuration = (secs) => {
   return `${m}:${s}`;
 };
 
-function SortableTrack({ track, index, onPlay, onRemove, isPlaying, isLoaded, busy }) {
+function SortableTrack({ track, index, onPlay, onRemove, isPlaying, isLoaded, busy, isOwner }) {
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
-  } = useSortable({ id: track.playlistSongId });
+  } = useSortable({ id: track.playlistSongId, disabled: !isOwner });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -53,17 +53,21 @@ function SortableTrack({ track, index, onPlay, onRemove, isPlaying, isLoaded, bu
         bgcolor: isLoaded ? 'action.selected' : 'background.paper',
       }}
     >
-      <Box
-        {...attributes}
-        {...listeners}
-        sx={{
-          cursor: 'grab', display: 'flex', color: 'text.disabled',
-          touchAction: 'none',   // stop the browser scrolling instead of dragging on touch
-          '&:active': { cursor: 'grabbing' },
-        }}
-      >
-        <DragIndicatorRoundedIcon />
-      </Box>
+      {isOwner ? (
+        <Box
+          {...attributes}
+          {...listeners}
+          sx={{
+            cursor: 'grab', display: 'flex', color: 'text.disabled',
+            touchAction: 'none',   // stop the browser scrolling instead of dragging on touch
+            '&:active': { cursor: 'grabbing' },
+          }}
+        >
+          <DragIndicatorRoundedIcon />
+        </Box>
+      ) : (
+        <Box sx={{ width: 24 }} />
+      )}
 
       <Typography variant="body2" color="text.secondary" sx={{ width: 24, textAlign: 'right' }}>
         {index + 1}
@@ -86,13 +90,15 @@ function SortableTrack({ track, index, onPlay, onRemove, isPlaying, isLoaded, bu
         {fmtDuration(track.song?.durationSeconds)}
       </Typography>
 
-      <Tooltip title="Remove from playlist">
-        <span>
-          <IconButton size="small" onClick={onRemove} disabled={busy} sx={{ flexShrink: 0 }}>
-            <DeleteOutlineRoundedIcon fontSize="small" />
-          </IconButton>
-        </span>
-      </Tooltip>
+      {isOwner && (
+        <Tooltip title="Remove from playlist">
+          <span>
+            <IconButton size="small" onClick={onRemove} disabled={busy} sx={{ flexShrink: 0 }}>
+              <DeleteOutlineRoundedIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
     </Paper>
   );
 }
@@ -107,18 +113,13 @@ export default function PlaylistPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  // Owner-only: whether the caller owns this playlist (drives the visibility
-  // toggle) and whether a public/private write is in flight (locks the chip so a
-  // double-click can't fire two conflicting PATCHes).
   const [isOwner, setIsOwner] = useState(false);
   const [togglingVisibility, setTogglingVisibility] = useState(false);
 
   const loadedId = useSelector((s) => s.player.current?.id);
   const playingId = useSelector((s) => (s.player.isPlaying ? s.player.current?.id : null));
 
-  // The pointer sensor needs a small activation distance. Without it, a plain
-  // CLICK on the handle registers as a zero-distance drag, and dnd-kit swallows
-  // the click event. 6px means "you have to actually move to be dragging".
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -128,7 +129,7 @@ export default function PlaylistPage() {
     if (!silent) setLoading(true);
     setErr('');
     try {
-      const data = await fetchPlaylist(id, { page: 1, limit: 200 });
+      const data = await fetchPlaylist(id, { page: 1, limit: 100 });
       // GET /playlists/:id returns { playlist, tracks, pagination, isOwner }.
       // tracks is a plain array of { playlistSongId, position, song }.
       setPlaylist(data.playlist);
@@ -173,28 +174,16 @@ export default function PlaylistPage() {
     const previous = tracks;                       // keep it, so we can roll back
     const reordered = arrayMove(tracks, from, to);
 
-    // OPTIMISTIC. Reorder locally first so the row lands where the finger let go,
-    // with no network round-trip in between. Waiting for the server would make the
-    // row visibly snap back and then jump — which reads as a bug even when it works.
     setTracks(reordered);
     setBusy(true);
     setErr('');
 
-    // The backend speaks "after WHICH row", not "at index N" — that's what makes
-    // fractional positioning work (insert between two neighbours by taking their
-    // midpoint; no other row gets rewritten). So we translate the new index into
-    // the id of whatever now sits ABOVE it. Landing at the top means "after
-    // nothing", which is null.
     const newIdx = reordered.findIndex((t) => t.playlistSongId === active.id);
     const afterId = newIdx === 0 ? null : reordered[newIdx - 1].playlistSongId;
 
     try {
       const res = await moveTrack(id, active.id, afterId);
 
-      // The backend hands back `rebalanced: true` when the fractional gaps got so
-      // small it had to renumber EVERY row. When that happens our local positions
-      // are stale, so we refetch rather than trust them. This is why the flag
-      // exists — it's the one case where optimism is wrong.
       if (res?.rebalanced) await load({ silent: true });
     } catch (e) {
       setTracks(previous);   // roll back to exactly what the user saw before
@@ -204,9 +193,6 @@ export default function PlaylistPage() {
     }
   };
 
-  // Flip public <-> private. Optimistic, same as the reorder/remove handlers:
-  // the chip changes the instant it's clicked, and only rolls back if the PATCH
-  // fails — so the common (successful) case has no visible network lag.
   const toggleVisibility = async () => {
     if (!isOwner || togglingVisibility || !playlist) return;
 
@@ -217,8 +203,6 @@ export default function PlaylistPage() {
     setTogglingVisibility(true);
     setErr('');
     try {
-      // Backend is the source of truth — take isPublic from its response rather
-      // than trusting our optimistic guess, in case anything normalises it.
       const updated = await updatePlaylist(id, { isPublic: nextPublic });
       setPlaylist((cur) => ({ ...cur, isPublic: updated.isPublic }));
     } catch (e) {
@@ -311,7 +295,8 @@ export default function PlaylistPage() {
             <Typography variant="body2" color="text.secondary">{playlist.description}</Typography>
           )}
           <Typography variant="caption" color="text.secondary">
-            {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'} · drag the handle to reorder
+            {tracks.length} {tracks.length === 1 ? 'track' : 'tracks'}
+            {isOwner ? ' · drag the handle to reorder' : ''}
           </Typography>
         </Box>
       </Stack>
@@ -344,6 +329,7 @@ export default function PlaylistPage() {
                   track={t}
                   index={i}
                   busy={busy}
+                  isOwner={isOwner}
                   isLoaded={loadedId === t.song?.id}
                   isPlaying={playingId === t.song?.id}
                   onPlay={() => play(i)}

@@ -372,7 +372,7 @@ export default function LibraryPage() {
                         fmtDate(it.releaseDate) ? ` · ${fmtDate(it.releaseDate)}` : ''
                       }`}
                       isPlaying={playingId === it.id}
-                      onClick={() => navigate(`/album/${it.id}`)}
+                      onClick={() => navigate(`/album/${it.publicId ?? it.id}`)}
                       onPlayAlbum={() => onAlbumPlay(it)}
                     />
                   </Box>
@@ -403,7 +403,7 @@ export default function LibraryPage() {
                           <Link
                             component="button"
                             variant="caption"
-                            onClick={() => it.song?.id && navigate(`/album/${it.song.albumId}`)}
+                            onClick={() => it.song?.publicId && navigate(`/play/${it.song.publicId}`, { state: { highlightCommentId: it.id } })}
                             sx={{ fontWeight: 600 }}
                           >
                             on “{it.song.title}”
