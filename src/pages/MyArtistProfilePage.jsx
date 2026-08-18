@@ -31,10 +31,6 @@ export default function MyArtistProfilePage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
-
-  // Own follower count. It isn't part of the catalog payload (that's about songs,
-  // not social), so we ask the same status endpoint the public artist page uses —
-  // passing our OWN profile id. followers === null means "not loaded yet".
   const [followerCount, setFollowerCount] = useState(null);
   const [followersOpen, setFollowersOpen] = useState(false);
 
@@ -47,9 +43,6 @@ export default function MyArtistProfilePage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Once we know our own artist profile id, fetch how many people follow us. The
-  // status endpoint returns { following, followerCount } — `following` is
-  // meaningless for yourself (you can't follow yourself), so we only read the count.
   const profileId = data?.profile?.id;
   useEffect(() => {
     if (!profileId) return;
@@ -131,10 +124,6 @@ export default function MyArtistProfilePage() {
                 {albums.length} {albums.length === 1 ? 'album' : 'albums'} · {publishedCount} published {publishedCount === 1 ? 'track' : 'tracks'}
               </Typography>
 
-              {/* Follower count. Rendered as a button because it's clickable — it opens
-                  the list of who follows you. Disabled (but still shows the number)
-                  when the count is 0, since there's nothing to open. Until the status
-                  call resolves it shows a dash rather than a flickering 0. */}
               <Button
                 variant="text"
                 size="small"
@@ -155,20 +144,6 @@ export default function MyArtistProfilePage() {
         </Stack>
       </Box>
 
-      {/* Albums — DISPLAY ONLY.
-          
-          The publish/archive icon buttons that used to sit under each cover are
-          gone. They were a SECOND, worse copy of controls the Library page already
-          owns: same endpoint, same statuses, different affordances (tiny unlabelled
-          icons here vs proper labelled actions there), and — critically — no
-          knowledge of the admin-takedown lock we just added. Two places that can
-          change status are two places that must enforce every rule about changing
-          status, and the moment they drift you get the bug where an artist can do
-          something on one page they can't do on the other.
-          
-          This page is now what its name says: a PROFILE. It shows you what your
-          public presence looks like. Managing the catalog is the Library's job, and
-          the button below says so out loud rather than leaving you to guess. */}
       <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
         <Typography variant="h6" sx={{ fontWeight: 700 }}>Your albums</Typography>
         <Stack direction="row" spacing={1}>
@@ -195,7 +170,7 @@ export default function MyArtistProfilePage() {
                   imageUrl={a.coverUrl || undefined}
                   title={a.title}
                   subtitle={a.isSingle ? 'Single' : 'Album'}
-                  onClick={() => navigate(`/album/${a.id}`)}
+                  onClick={() => navigate(`/album/${a.publicId ?? a.id}`)}
                 />
               </Box>
             </Box>
@@ -228,10 +203,6 @@ export default function MyArtistProfilePage() {
   );
 }
 
-// The list of people who follow this artist. Fetches on open (not on page load) —
-// most visits to the profile don't open it, so there's no reason to pay for the
-// request every time. Its own loading/error/empty states keep the dialog honest
-// about what it knows.
 function FollowersDialog({ onClose }) {
   const [rows, setRows] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -280,10 +251,6 @@ function FollowersDialog({ onClose }) {
           </Box>
         ) : (
           <List disablePadding>
-            {/* A follower is a listener, and a listener has no public page to open —
-                so these rows are names, not links. If followers become clickable
-                later, it'll be because the payload starts telling us which of them
-                are themselves artists; until then a dead link would be a lie. */}
             {rows.map((f) => (
               <Box
                 key={f.userId}

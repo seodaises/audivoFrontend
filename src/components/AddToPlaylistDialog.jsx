@@ -2,24 +2,21 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button, Stack,
   List, ListItemButton, ListItemText, ListItemIcon, Typography, Alert,
-  Skeleton, TextField, Divider, CircularProgress,
+  Skeleton, TextField, Divider, CircularProgress, alpha,
 } from '@mui/material';
 import QueueMusicRoundedIcon from '@mui/icons-material/QueueMusicRounded';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
+import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded';
 import { fetchMyPlaylists, createPlaylist, addTrack } from '../api/playlist';
-
-// One dialog, every trigger. Both MediaCard and the AlbumPage rows open this —
-// there is no second copy of "add to playlist" logic anywhere.
-//
-// songId is the SONG id (not a playlist_songs row id — that concept doesn't
-// exist until the song is IN a playlist).
 export default function AddToPlaylistDialog({ open, onClose, songId, songTitle }) {
   const [playlists, setPlaylists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
   const [busyId, setBusyId] = useState(null);
-  const [addedId, setAddedId] = useState(null);   // which one we just added to
+  const [addedId, setAddedId] = useState(null); 
+
+  const [confirmId, setConfirmId] = useState(null);
 
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -28,43 +25,45 @@ export default function AddToPlaylistDialog({ open, onClose, songId, songTitle }
     setLoading(true);
     setErr('');
     try {
-      const data = await fetchMyPlaylists({ page: 1, limit: 100 });
+      const data = await fetchMyPlaylists({ page: 1, limit: 100, songId });
       setPlaylists(data.items || []);
     } catch (e) {
       setErr(e.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [songId]);
 
-  // Fetch on OPEN, not on mount. This dialog is rendered once per song card, so
-  // fetching on mount would fire one request per card on the page — forty cards,
-  // forty identical calls to /playlists, before anyone has clicked anything.
   useEffect(() => {
     if (!open) return;
     setAddedId(null);
+    setConfirmId(null);
     setCreating(false);
     setNewTitle('');
     load();
   }, [open, load]);
 
-  const add = async (playlistId) => {
+  const doAdd = async (playlistId) => {
     setBusyId(playlistId);
     setErr('');
     try {
-      // No afterPlaylistSongId → append to the end. That's the right default for
-      // "add to playlist": you're putting it at the bottom of the list, not
-      // inserting it into the middle of someone's carefully ordered set.
       await addTrack(playlistId, songId);
       setAddedId(playlistId);
-      // Brief confirmation, then close. Long enough to register, short enough
-      // not to feel like a step.
       setTimeout(onClose, 700);
     } catch (e) {
       setErr(e.message);
     } finally {
       setBusyId(null);
     }
+  };
+
+  const add = (playlist) => {
+    if (playlist.containsSong && confirmId !== playlist.id) {
+      setConfirmId(playlist.id);
+      return;
+    }
+    setConfirmId(null);
+    doAdd(playlist.id);
   };
 
   const createAndAdd = async () => {
@@ -108,29 +107,48 @@ export default function AddToPlaylistDialog({ open, onClose, songId, songTitle }
               </Typography>
             ) : (
               <List dense disablePadding>
-                {playlists.map((p) => (
-                  <ListItemButton
-                    key={p.id}
-                    onClick={() => add(p.id)}
-                    disabled={busyId != null}
-                    sx={{ borderRadius: 2 }}
-                  >
-                    <ListItemIcon sx={{ minWidth: 36 }}>
-                      {busyId === p.id ? (
-                        <CircularProgress size={18} />
-                      ) : addedId === p.id ? (
-                        <CheckRoundedIcon color="success" fontSize="small" />
-                      ) : (
-                        <QueueMusicRoundedIcon fontSize="small" />
-                      )}
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={p.title}
-                      secondary={`${p.trackCount ?? 0} ${p.trackCount === 1 ? 'track' : 'tracks'}`}
-                      slotProps={{ primary: { fontWeight: 600 } }}
-                    />
-                  </ListItemButton>
-                ))}
+                {playlists.map((p) => {
+                  const isConfirming = confirmId === p.id;
+                  return (
+                    <ListItemButton
+                      key={p.id}
+                      onClick={() => add(p)}
+                      disabled={busyId != null}
+                      sx={{
+                        borderRadius: 2,
+                        ...(isConfirming && {
+                          bgcolor: (t) => alpha(t.palette.warning.main, 0.08),
+                        }),
+                      }}
+                    >
+                      <ListItemIcon sx={{ minWidth: 36 }}>
+                        {busyId === p.id ? (
+                          <CircularProgress size={18} />
+                        ) : addedId === p.id ? (
+                          <CheckRoundedIcon color="success" fontSize="small" />
+                        ) : isConfirming ? (
+                          <ErrorOutlineRoundedIcon color="warning" fontSize="small" />
+                        ) : (
+                          <QueueMusicRoundedIcon fontSize="small" />
+                        )}
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={p.title}
+                        secondary={
+                          isConfirming
+                            ? 'Already in this playlist — click again to add anyway'
+                            : p.containsSong
+                              ? `${p.trackCount ?? 0} ${p.trackCount === 1 ? 'track' : 'tracks'} · already added`
+                              : `${p.trackCount ?? 0} ${p.trackCount === 1 ? 'track' : 'tracks'}`
+                        }
+                        slotProps={{
+                          primary: { fontWeight: 600 },
+                          secondary: isConfirming ? { color: 'warning.main' } : undefined,
+                        }}
+                      />
+                    </ListItemButton>
+                  );
+                })}
               </List>
             )}
 

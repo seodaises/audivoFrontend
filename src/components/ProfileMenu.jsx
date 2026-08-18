@@ -65,7 +65,7 @@ export default function ProfileMenu() {
         anchorEl={anchor}
         open={open}
         onClose={closeMenu}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
         transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         slotProps={{ paper: { sx: { minWidth: 220, borderRadius: 2, mb: 1 } } }}
       >

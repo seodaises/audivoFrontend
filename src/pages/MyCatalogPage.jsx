@@ -24,6 +24,7 @@ import MediaCardShell from '../components/MediaCardShell';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
 import { fetchMyCatalog, setSongStatus, setAlbumStatus, deleteSong, deleteAlbum } from '../api/catalog';
 import DeleteCatalogItemDialog from '../components/DeleteCatalogItemDialog';
+import LyricsAction from '../components/LyricsAction';
 import { UPLOAD, BROWSE } from '../constants/route_constant';
 import { useAuth } from '../store/hooks/useAuth';
 import { PERMISSIONS } from '../auth/permissions';
@@ -69,38 +70,14 @@ export default function MyCatalogPage() {
   const [hoverId, setHoverId] = useState(null);  // which album card is hovered (toggle reveal)
   const [pendingDelete, setPendingDelete] = useState(null);
 
-  // Search + status filter. Both are pure CLIENT-side: fetchMyCatalog() returns
-  // the whole catalog in one payload (no pagination), so everything we'd filter
-  // on is already in `data`. No endpoint change, no debounce — there's nothing
-  // being fetched, so it's instant on every keystroke.
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // '' = all
 
-  // Which half of the catalog is showing. Albums first — an artist's mental
-  // model of their own catalog is usually album-led, and songs are reachable
-  // from inside an album anyway. Purely local view state: both lists are
-  // already in memory, so switching tabs costs nothing and hits no endpoint.
   const [contentTab, setContentTab] = useState('albums');
 
-  // upload_songs is the Artist permission. Gate on the PERMISSION, not the role
-  // name — the permission list comes from the DB via /me, so a new role that
-  // grants uploading works here with zero frontend changes.
-  //
-  // Super Admin is the ONE deliberate exception, and it has to be by role name
-  // because the thing that makes them special isn't a missing permission — they
-  // hold every permission, upload_songs included. What they lack is the INTENT:
-  // they administer the catalog through Manage Catalog, they don't author it.
-  // Sidebar.jsx already encodes this exact carve-out via `hideForSuperAdmin`.
-  // This mirrors it so the two files cannot drift apart again — before this,
-  // Library told a Super Admin to "set up your artist profile" and offered a
-  // button to a Studio the sidebar was simultaneously refusing to link to.
   const isSuperAdmin = user?.role === 'Super Admin';
   const canUpload = can(PERMISSIONS.UPLOAD_SONGS) && !isSuperAdmin;
 
-  // `silent` refetches WITHOUT tearing the page down to skeletons. The full
-  // skeleton is only correct on first mount, when there's nothing on screen yet.
-  // After a status write we already have data — blanking it and rebuilding is
-  // what caused the reload-flash.
   const load = useCallback(async ({ silent = false } = {}) => {
     if (silent) setRefreshing(true);
     else setLoading(true);
@@ -119,9 +96,6 @@ export default function MyCatalogPage() {
 
   const needle = search.trim().toLowerCase();
 
-  // Filtered views. useMemo so we're not re-filtering on every unrelated render
-  // (hover state changes a lot). Albums match on title; songs match on title OR
-  // their album's title, so searching an album name surfaces its tracks too.
   const albums = useMemo(() => {
     const all = data?.albums || [];
     return all.filter((a) =>
@@ -140,8 +114,6 @@ export default function MyCatalogPage() {
 
   const isFiltered = Boolean(needle || statusFilter);
 
-  // The play queue is built from the VISIBLE songs, so skipping next/prev walks
-  // what the artist can actually see — not a hidden full catalog.
   const tracks = songs.map((s) => ({
     id: s.id, title: s.title,
     artist: s.artist ?? null,
@@ -154,10 +126,6 @@ export default function MyCatalogPage() {
     else dispatch(playFromQueue({ queue: tracks, index: idx }));
   };
 
-  // Owner status change on MY song. The backend route is owner-gated, so this
-  // only ever touches songs I own. We refetch rather than optimistically guess —
-  // album status CASCADES to songs on the backend, and replicating that cascade
-  // client-side would duplicate business logic that belongs in one place.
   const changeSongStatus = async (song, next) => {
     setBusyId(`song-${song.id}`);
     try { await setSongStatus(song.id, next); await load({ silent: true }); }
@@ -172,10 +140,6 @@ export default function MyCatalogPage() {
     finally { setBusyId(null); }
   };
 
-  // HARD delete. Note this does NOT catch — it lets the error propagate up to the
-  // dialog, which keeps itself open and shows the message inline. Catching here and
-  // setting page-level `err` would close the dialog and print the failure at the
-  // top of a page the user isn't even looking at.
  const confirmDelete = async (password) => {
     if (!pendingDelete) return;
     const { kind, item } = pendingDelete;
@@ -184,8 +148,6 @@ export default function MyCatalogPage() {
     await load({ silent: true });
   };
 
-  // How many songs die with this album. The dialog needs this both to decide whether
-  // to demand a typed confirmation, and to tell the user what they're about to lose.
   const songsInAlbum = (albumId) =>
     (data?.songs || []).filter((s) => s.albumId === albumId).length;
 
@@ -206,7 +168,7 @@ export default function MyCatalogPage() {
     return <Box sx={{ pb: 12 }}><Alert severity="error">{err}</Alert></Box>;
   }
 
-  // Not an artist yet. Two audiences: someone who CAN upload (nudge to Studio), and everyone else — Listener, Moderator, Admin, and now Super Admin. None of them hold a usable upload_songs path, so give them a real action instead of pointing at a Studio they'd bounce off.
+
   if (!data?.isArtist) {
     return (
       <Box sx={{ pb: 12, textAlign: 'center', py: 8 }}>
@@ -234,10 +196,6 @@ export default function MyCatalogPage() {
     );
   }
 
-// Per-song action buttons keyed off current status.
-  // THE LOCK. A song archived by a moderator (isLocked) gets NO status buttons at all — just a gavel and an explanation. This mirrors the backend, which returns 403 on any attempt to move it. Rendering an enabled Publish button the server is guaranteed to reject is WORSE than rendering nothing: the user clicks, gets a cryptic error, and learns the app lies to them. Show the wall.
-  //
-  // Delete IS offered on locked songs, and that's deliberate. The takedown says "youmay not put this back on Browse" — not "you may not remove your own work from our servers." Locking an artist out of deleting their own file would be a different, and much stranger, power than moderation.
   const songActions = (s) => {
     const busy = busyId === `song-${s.id}`;
 
@@ -274,6 +232,7 @@ export default function MyCatalogPage() {
               </IconButton>
             </span>
           </Tooltip>
+          <LyricsAction song={s} />
           {deleteBtn}
         </>
       );
@@ -299,6 +258,7 @@ export default function MyCatalogPage() {
             </IconButton>
           </span>
         </Tooltip>
+        <LyricsAction song={s} />
         {deleteBtn}
       </>
     );
@@ -453,7 +413,7 @@ export default function MyCatalogPage() {
                   seed={a.id}
                   imageUrl={a.coverUrl || undefined}
                   title={a.title}
-                  onClick={() => navigate(`/album/${a.id}`)}
+                  onClick={() => navigate(`/album/${a.publicId ?? a.id}`)}
                 />
 
                 <Box sx={{ p: 1.25 }}>
@@ -503,10 +463,6 @@ export default function MyCatalogPage() {
                     </Stack>
                     <Stack direction="row" spacing={0.25} sx={{ alignItems: 'center' }}>
                       {albumToggle(a, hoverId === a.id)}
-                      {/* Delete sits BESIDE the status toggle, sharing the same
-                          hover-reveal. A destructive action shouldn't be permanently
-                          visible on a card you're merely browsing — you reveal it by
-                          reaching for the card, which is a small deliberate act. */}
                       <Tooltip title="Delete album permanently">
                         <IconButton
                           size="small"
@@ -568,7 +524,7 @@ export default function MyCatalogPage() {
                   secondary={
                     s.album ? (
                       <Link component="button" variant="body2" underline="hover"
-                        onClick={(e) => { e.stopPropagation(); navigate(`/album/${s.album.id}`); }}>
+                        onClick={(e) => { e.stopPropagation(); navigate(`/album/${s.album.publicId ?? s.album.id}`); }}>
                         {s.album.title}
                       </Link>
                     ) : fmtDuration(s.durationSeconds)

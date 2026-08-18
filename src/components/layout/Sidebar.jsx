@@ -4,6 +4,7 @@ import {
 } from '@mui/material';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import LibraryMusicRoundedIcon from '@mui/icons-material/LibraryMusicRounded';
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
@@ -25,17 +26,16 @@ import ProfileMenu from '../ProfileMenu';
 import {
   DASHBOARD, BROWSE, LIBRARY, UPLOAD, USERS,
   ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES,
-  MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER
+  MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER, SEARCH
 } from '../../constants/route_constant';
 
-// Two widths: full (labels) and rail (icons only). The rail is what "hidden"
-// now means — we still show the nav, just collapsed, so it never fully vanishes.
 const FULL_WIDTH = 240;
 const RAIL_WIDTH = 72;
 
 const baseItems = [
   { label: 'Home', icon: <HomeRoundedIcon />, path: DASHBOARD },
-  { label: 'Browse', icon: <SearchRoundedIcon />, path: BROWSE },
+  { label: 'Search', icon: <SearchRoundedIcon />, path: SEARCH },
+  { label: 'Browse', icon: <GridViewRoundedIcon />, path: BROWSE },
   { label: 'Library', icon: <LibraryMusicRoundedIcon />, path: LIBRARY },
   { label: 'Playlists', icon: <QueueMusicRoundedIcon />, path: PLAYLISTS },
   { label: 'Discover', icon: <PublicRoundedIcon />, path: DISCOVER },

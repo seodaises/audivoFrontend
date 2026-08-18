@@ -29,6 +29,7 @@ import colorModeReducer from './slices/colorModeSlice';
 import sidebarReducer from './slices/sidebarSlice';
 import authReducer from './slices/authSlice';
 import playerReducer from './slices/playerSlice';
+import notificationsReducer from './slices/notificationsSlice';
 
 const persistConfig = {
   key: 'audivo',
@@ -41,6 +42,7 @@ const rootReducer = combineReducers({
   sidebar: sidebarReducer,
   auth: authReducer,
   player: playerReducer,
+  notifications: notificationsReducer,
 });
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);
@@ -50,8 +52,6 @@ export const store = configureStore({
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
       serializableCheck: {
-        // redux-persist dispatches these internal actions with non-serializable
-        // payloads; ignoring them silences the (harmless) dev warning.
         ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER],
       },
     }),

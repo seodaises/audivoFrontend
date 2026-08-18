@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { setProgress, setDuration, ended, clearSeek, restorePlayback, reset as resetPlayer } from '../store/slices/playerSlice';
+import {
+  setProgress, setDuration, ended, clearSeek, restorePlayback, reset as resetPlayer,
+  pause as pausePlayer, resume as resumePlayer, next as nextTrack, prev as prevTrack, requestSeek,
+} from '../store/slices/playerSlice';
 import { setPlaybarHidden } from '../store/slices/sidebarSlice';
 import { songFileUrl } from '../api/catalog';
 import { recordPlay } from '../api/comments';
@@ -49,7 +52,7 @@ const writeResume = (track, seconds, isPlaying) => {
 
 export default function PlayerProvider({ children }) {
   const dispatch = useDispatch();
-  const { current, isPlaying, seekTo, progress, repeat } = useSelector((s) => s.player);
+  const { current, isPlaying, seekTo, progress, duration, repeat } = useSelector((s) => s.player);
   const user = useSelector((s) => s.auth.user);
 
   const checkingSession = useSelector((s) => s.auth.checkingSession);
@@ -64,6 +67,80 @@ export default function PlayerProvider({ children }) {
 
   const repeatRef = useRef(repeat);
   useEffect(() => { repeatRef.current = repeat; }, [repeat]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    if (!current) {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = 'none';
+      return;
+    }
+
+    const artistLabel =
+      (typeof current.artist === 'string' ? current.artist : current.artist?.stageName) ??
+      'Unknown artist';
+
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: current.title || 'Untitled',
+      artist: artistLabel,
+      artwork: current.coverUrl
+        ? [{ src: current.coverUrl, sizes: '512x512', type: 'image/png' }]
+        : [],
+    });
+  }, [current]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !current) return;
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  }, [isPlaying, current]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    const handlers = {
+      play: () => dispatch(resumePlayer()),
+      pause: () => dispatch(pausePlayer()),
+      previoustrack: () => dispatch(prevTrack()),
+      nexttrack: () => dispatch(nextTrack()),
+      seekto: (details) => {
+        if (details.seekTime != null) dispatch(requestSeek(details.seekTime));
+      },
+    };
+
+    Object.entries(handlers).forEach(([action, handler]) => {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler);
+      } catch {
+        // Some actions (e.g. seekto on older browsers) can throw
+        // "not supported" — safe to ignore, the control just won't appear.
+      }
+    });
+
+    return () => {
+      Object.keys(handlers).forEach((action) => {
+        try {
+          navigator.mediaSession.setActionHandler(action, null);
+        } catch {
+          // no-op
+        }
+      });
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    if (!current || !Number.isFinite(duration) || duration <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        playbackRate: 1,
+        position: Math.min(progress, duration),
+      });
+    } catch {
+      // Transient state (e.g. still loading metadata) — next tick corrects it.
+    }
+  }, [current, duration, progress]);
 
   const loadedIdRef = useRef(null);
   useEffect(() => {

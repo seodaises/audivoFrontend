@@ -5,6 +5,7 @@ import BookmarkRoundedIcon from '@mui/icons-material/BookmarkRounded';
 import BookmarkBorderRoundedIcon from '@mui/icons-material/BookmarkBorderRounded';
 import MediaCardShell from './MediaCardShell';
 import useSocialAlbum from '../store/hooks/useSocialAlbum';
+import ShareButton from './ShareButton';
 
 const overlayBtnSx = (activeColor) => ({
   bgcolor: 'rgba(0,0,0,0.45)',
@@ -15,6 +16,7 @@ const overlayBtnSx = (activeColor) => ({
 });
 export default function AlbumCard({
   albumId,
+  albumPublicId = null,  // opaque handle for the share link (URL never uses the PK)
   title,
   subtitle,
   imageUrl,
@@ -22,6 +24,8 @@ export default function AlbumCard({
   onClick,
   onPlayAlbum = null,
   isPlaying = false,
+  showShare = false,   // opt-in, same reasoning as SongCard: this overlay is
+                       // shared by Browse, Library, MyCatalog and Playlists.
 }) {
   const { saved, busy, toggleSave } = useSocialAlbum(albumId);
 
@@ -56,6 +60,16 @@ export default function AlbumCard({
           </IconButton>
         </span>
       </Tooltip>
+
+      {showShare && (
+        <ShareButton
+          kind="album"
+          albumPublicId={albumPublicId}
+          albumId={albumId}
+          title={title}
+          sx={overlayBtnSx()}
+        />
+      )}
     </Stack>
   ) : null;
 

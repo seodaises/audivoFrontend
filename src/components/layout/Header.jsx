@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { useColorMode } from '../../store/hooks/useColorMode';
 import { useSidebar } from '../../store/hooks/useSidebar';
 import { useAuth } from '../../store/hooks/useAuth';
+import NotificationBell from '../NotificationBell';
 import { LOGIN } from '../../constants/route_constant';
 
 export default function Header({ onOpenMobileNav }) {
@@ -32,9 +33,6 @@ export default function Header({ onOpenMobileNav }) {
         bgcolor: (t) => (t.palette.mode === 'dark' ? 'rgba(18,18,18,0.8)' : 'rgba(255,255,255,0.8)'),
       }}>
       <Toolbar sx={{ gap: 1 }}>
-        {/* Sidebar toggle on desktop, menu-open on mobile — visible at every
-            width now, since a phone with no button and no drawer had no way
-            to navigate at all. */}
         {user && (
           <Tooltip title={label}>
             <IconButton
@@ -56,6 +54,8 @@ export default function Header({ onOpenMobileNav }) {
         </Stack>
 
         <Box sx={{ flexGrow: 1 }} />
+
+        {user && <NotificationBell />}
 
         <IconButton onClick={toggle} color="inherit" aria-label="toggle day/night mode">
           {mode === 'dark' ? <LightModeRoundedIcon /> : <DarkModeRoundedIcon />}

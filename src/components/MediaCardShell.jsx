@@ -1,47 +1,12 @@
 import { Box, Card, CardContent, Typography } from '@mui/material';
 import MusicNoteRoundedIcon from '@mui/icons-material/MusicNoteRounded';
+import { useCoverAccentColor } from '../store/hooks/useCoverAccentColor';
 
-// Deterministic cover gradient. 137.508° is the golden angle — stepping hue by
-// it spreads consecutive ids across the colour wheel instead of clustering them,
-// so two cards made back-to-back don't come out nearly the same colour. Shared
-// by every card surface (SongCard, AlbumCard, PlaylistsPage, DiscoverPage).
 export const gradientFor = (seed = 0) => {
   const h1 = Math.round(seed * 137.508) % 360;
   const h2 = (h1 + 50) % 360;
   return `linear-gradient(135deg, hsl(${h1} 55% 45%), hsl(${h2} 60% 35%))`;
 };
-
-// The visual chrome every media card shares, plus three SLOTS the typed cards
-// fill —
-//   `actions`     — overlay cluster on the cover (album save button)
-//   `playButton`  — the play affordance on the cover
-//   `footer`      — a row UNDER the title/subtitle (song social controls)
-//
-// This component owns NO social or playback logic. That lives in SongCard /
-// AlbumCard: the shell is dumb, the behaviour is typed.
-//
-// VARIANTS — a song and an album are different KINDS of thing, so they get
-// different silhouettes. Width, hover behaviour and typography stay shared.
-//
-//   'song'   — circular cover (the vinyl-single silhouette) on a raised Card,
-//              centred text. Round covers centre-crop, so uploaded art loses
-//              its corners by design. Social controls go in `footer`, NOT on
-//              the cover: a circle has no corner that can hold a button
-//              without it hanging off the rim.
-//
-//   'album'  — NO card chrome. The cover sits directly on the page with one
-//              layer peeking out above-and-right, so an album reads as a stack
-//              of records. The peek is a NEUTRAL surface tone, deliberately not
-//              derived from the artwork: it's chrome, not content, and a
-//              neutral holds up behind any uploaded cover (a seed-derived
-//              colour would put an amber sliver behind a blue album).
-//
-// `bare` — cover ONLY: no card, no text, no stack layer, no hover lift. For
-// call sites that supply their own frame and their own text block. The artist's
-// MyCatalogPage does this: its album tile carries status chips, a release date
-// and publish/delete controls, which are MANAGEMENT concerns that have no place
-// in a listener-facing card. `bare` lets that page reuse this cover renderer
-// without inheriting a listener card's anatomy.
 const CARD_W = 180;
 const COVER_H = 180;
 const CIRCLE_INSET = 12;
@@ -63,6 +28,9 @@ export default function MediaCardShell({
   const isAlbum = variant === 'album';
   const gradient = gradientFor(seed);
   const circleSize = COVER_H - CIRCLE_INSET * 2;
+  // Best-effort — null until (and unless) extraction succeeds; every use
+  // below falls back to the existing neutral/seed-based look when it's null.
+  const accentColor = useCoverAccentColor(hasImage ? imageUrl : null);
 
   const cover = (
     <Box
@@ -156,7 +124,9 @@ export default function MediaCardShell({
           '&:hover .album-cover': { transform: 'translateY(-3px)' },
         }}
       >
-        {/* The record behind. Neutral, decorative, hidden from assistive tech. */}
+        {/* The record behind. Colored from the cover's own extracted accent
+            when we have one (see useCoverAccentColor) — falls back to the
+            original neutral tone when extraction wasn't possible. */}
         <Box
           aria-hidden
           className="stack-layer"
@@ -167,9 +137,9 @@ export default function MediaCardShell({
             width: CARD_W,
             height: COVER_H,
             borderRadius: 2.5,
-            bgcolor: 'text.disabled',
-            opacity: 0.55,
-            transition: 'transform 0.2s ease',
+            bgcolor: accentColor || 'text.disabled',
+            opacity: accentColor ? 0.7 : 0.55,
+            transition: 'transform 0.2s ease, background-color 0.3s ease',
           }}
         />
 

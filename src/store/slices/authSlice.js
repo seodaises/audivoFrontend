@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 import { ROLES } from '../../auth/permissions';
 import { reset as resetPlayer } from './playerSlice';
 import { setPlaybarHidden as setPlaybarHiddenAction } from './sidebarSlice';
+import { clearNotifications } from './notificationsSlice';
 
 const shapeUser = (u) => {
   const key = (u.role || '').toLowerCase().replace(/\s+/g, '_');
@@ -32,9 +33,6 @@ const shapeUser = (u) => {
   };
 };
 
-// ---------------------------------------------------------------------------
-// Async thunks
-// ---------------------------------------------------------------------------
 
 export const login = createAsyncThunk(
   'auth/login',
@@ -49,9 +47,6 @@ export const login = createAsyncThunk(
   }
 );
 
-// Re-fetches /auth/me. No token guard — the cookie (if present) authenticates
-// the request; if there's no valid cookie the backend returns 401 and this
-// rejects. Runs on app load (via AuthBootstrap) and after login.
 export const refreshUser = createAsyncThunk(
   'auth/refreshUser',
   async (_, { rejectWithValue }) => {
@@ -97,10 +92,9 @@ export const logout = createAsyncThunk(
     } catch {
       // cleared regardless
     }
-    // Stop playback and tear down the player so audio doesn't keep going and
-    // the now-playing bar disappears when the session ends.
     dispatch(resetPlayer());
     dispatch(setPlaybarHiddenAction(true));
+    dispatch(clearNotifications());
     return true;
   }
 );
@@ -126,6 +120,7 @@ export const deleteAccount = createAsyncThunk(
       // Same teardown as logout — the session is over.
       dispatch(resetPlayer());
       dispatch(setPlaybarHiddenAction(true));
+      dispatch(clearNotifications());
       return true;
     } catch (err) {
       return rejectWithValue(err.message);

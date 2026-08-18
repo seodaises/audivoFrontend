@@ -159,7 +159,7 @@ export default function ListenerDashboard() {
           loading={loading}
           empty={!topAlbum}
           emptyText="Not enough listening yet."
-          onClick={topAlbum ? () => navigate(`/album/${topAlbum.id}`) : null}
+          onClick={topAlbum ? () => navigate(`/album/${topAlbum.publicId ?? topAlbum.id}`) : null}
           actionLabel="Open album"
         >
           {topAlbum && (
@@ -264,7 +264,7 @@ export default function ListenerDashboard() {
                     breakdown={`${s.plays} plays · ${s.likes} likes · ${s.saves} saves`}
                     isPlaying={playingId === s.id}
                     onTogglePlay={() => playFromList(trendSongs, idx)}
-                    onClick={() => s.album && navigate(`/album/${s.album.id}`)}
+                    onClick={() => s.album && navigate(`/album/${s.album.publicId ?? s.album.id}`)}
                   />
                 ))}
               </Stack>
@@ -285,7 +285,7 @@ export default function ListenerDashboard() {
                     subtitle={a.artist?.stageName ?? 'Unknown artist'}
                     imageUrl={a.coverUrl}
                     breakdown={`${a.plays} plays · ${a.saves} saves`}
-                    onClick={() => navigate(`/album/${a.id}`)}
+                    onClick={() => navigate(`/album/${a.publicId ?? a.id}`)}
                   />
                 ))}
               </Stack>

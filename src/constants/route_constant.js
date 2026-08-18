@@ -8,6 +8,7 @@ export const DASHBOARD = "/";
 export const CHANGE_PASSWORD = "/change-password";
 
 export const BROWSE = "/browse";
+export const SEARCH = "/search";       
 export const LIBRARY = "/library";
 export const UPLOAD = "/upload";
 export const SONGS = "/songs";
@@ -23,5 +24,6 @@ export const MANAGE_CATALOG = "/manage-catalog";
 export const MY_ARTIST = "/my-artist";
 export const MY_CATALOG = "/my-catalog";  
 export const PLAYLISTS = "/playlists";
-export const PLAYLIST = "/playlist";   // detail is /playlist/:id
-export const DISCOVER = "/discover";   // public playlists from everyone
+export const PLAYLIST = "/playlist";  
+export const DISCOVER = "/discover";  
+export const PLAY = "/play"; 

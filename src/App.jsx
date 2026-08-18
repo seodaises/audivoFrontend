@@ -24,6 +24,7 @@ import NowPlayingBar from './components/NowPlayingBar';
 import LibraryPage from './pages/LibraryPage';
 import MyCatalogPage from './pages/MyCatalogPage';
 import AlbumPage from './pages/AlbumPage';
+import PlayPage from './pages/PlayPage';
 import ArtistPage from './pages/ArtistPage';
 import ManageCatalogPage from './pages/ManageCatalogPage';
 import MyArtistProfilePage from './pages/MyArtistProfilePage';
@@ -31,22 +32,15 @@ import RequirePermission from './components/RequirePermission';
 import PlaylistsPage from './pages/PlaylistsPage';
 import PlaylistPage from './pages/PlaylistPage';
 import DiscoverPage from './pages/DiscoverPage';
+import SearchPage from './pages/SearchPage';
 import { PERMISSIONS } from './auth/permissions';
 import AnalyticsPage from './pages/AnalyticsPage';
 import ArtistAnalyticsPage from './pages/ArtistAnalyticsPage';
 import ModeratePage from './pages/ModeratePage';
-import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES, MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER} from './constants/route_constant';
+import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES, MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER, SEARCH} from './constants/route_constant';
 
 const Placeholder = ({ title }) => <Typography variant="h4" sx={{ fontWeight: 800 }}>{title}</Typography>;
 
-// VIEW_ANALYTICS is held by BOTH admin-tier roles and Artists, but it means two
-// different things: admins get platform-wide data from /admin/metrics, artists
-// get their own catalogue from /artists/analytics/tracks. Splitting here rather
-// than branching inside one page keeps two unrelated views out of one file.
-//
-// Artist-hood is a role, not a rank an admin inherits (see artistRoutes.js), so
-// an exact role check is sufficient — there is no admin-who-is-also-an-artist.
-// `user.role` is the role NAME as sent by authService ('Artist', 'Admin', ...).
 function AnalyticsRouter() {
   const user = useSelector((s) => s.auth.user);
   return user?.role === 'Artist' ? <ArtistAnalyticsPage /> : <AnalyticsPage />;
@@ -93,8 +87,10 @@ export default function App() {
             <Route path={LIBRARY} element={<LibraryPage />} />
             <Route path={PLAYLISTS} element={<PlaylistsPage />} />
             <Route path={DISCOVER} element={<DiscoverPage />} />
+            <Route path={SEARCH} element={<SearchPage />} />
             <Route path="/playlist/:id" element={<PlaylistPage />} />
             <Route path="/album/:id" element={<AlbumPage />} />
+            <Route path="/play/:publicId" element={<PlayPage />} />
             <Route path="/artist/:username" element={<ArtistPage />} />
             {/* Artist. */}
             <Route path={UPLOAD} element={
