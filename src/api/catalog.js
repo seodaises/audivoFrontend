@@ -1,4 +1,4 @@
-import { api } from './client';
+import { api, API_BASE_URL } from './client';
 
 // GET /genres -> [{ id, name }]
 export function fetchGenres() {
@@ -77,7 +77,7 @@ export function fetchMyCatalog() {
 }
 
 export function songFileUrl(songId) {
-  return `http://localhost:5000/api/songs/${songId}/file`;
+  return `${API_BASE_URL}/api/songs/${songId}/file`;
 }
 
 
@@ -249,7 +249,7 @@ export function uploadSong({ title, albumId, trackNumber, durationSeconds, genre
   if (Array.isArray(genreIds) && genreIds.length) form.append('genreIds', genreIds.join(','));
 
   return axios
-    .post('http://localhost:5000/api/songs', form, {
+    .post(`${API_BASE_URL}/api/songs`, form, {
       withCredentials: true,             // send the auth cookie
       // NOTE: deliberately NOT setting Content-Type — axios/browser sets the
       // multipart boundary automatically. Setting it by hand breaks the upload.

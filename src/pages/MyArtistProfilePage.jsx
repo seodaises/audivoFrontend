@@ -11,9 +11,12 @@ import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import LibraryMusicRoundedIcon from '@mui/icons-material/LibraryMusicRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import MediaCard from '../components/MediaCard';
+import ImagePicker from '../components/ImagePicker';
+import { uploadArtistAvatarImage } from '../api/uploads';
 import { fetchMyCatalog, updateMyProfile } from '../api/catalog';
 import { fetchArtistStatus, fetchMyFollowers } from '../api/social';
 import { UPLOAD, LIBRARY } from '../constants/route_constant';
+import { useCoverAccentColor } from '../store/hooks/useCoverAccentColor';
 
 const fmtCount = (n) => {
   if (n == null) return '0';
@@ -58,6 +61,8 @@ export default function MyArtistProfilePage() {
     return () => { cancelled = true; };
   }, [profileId]);
 
+  const accentColor = useCoverAccentColor(data?.profile?.avatarUrl || null);
+
   if (loading) {
     return (
       <Box sx={{ pb: 12 }}>
@@ -90,8 +95,10 @@ export default function MyArtistProfilePage() {
       <Box
         sx={{
           borderRadius: 4, p: { xs: 2, sm: 4 }, mb: 3,
-          background: (t) =>
-            `linear-gradient(135deg, ${t.palette.primary.main}33, ${t.palette.background.paper} 75%)`,
+          background: (t) => accentColor
+            ? `linear-gradient(135deg, ${accentColor}33, ${t.palette.background.paper} 75%)`
+            : `linear-gradient(135deg, ${t.palette.primary.main}33, ${t.palette.background.paper} 75%)`,
+          transition: 'background 0.4s ease',
         }}
       >
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} sx={{ alignItems: { sm: 'center' } }}>
@@ -313,8 +320,13 @@ function EditProfileDialog({ profile, onClose, onSaved, onError }) {
             fullWidth autoFocus />
           <TextField label="Bio" value={bio} onChange={(e) => setBio(e.target.value)}
             fullWidth multiline minRows={3} />
-          <TextField label="Avatar image URL" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)}
-            fullWidth placeholder="https://…" />
+          <ImagePicker
+            label="Avatar"
+            shape="circle"
+            value={avatarUrl}
+            onChange={setAvatarUrl}
+            uploadFn={uploadArtistAvatarImage}
+          />
         </Stack>
       </DialogContent>
       <DialogActions>

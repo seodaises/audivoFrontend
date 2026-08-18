@@ -29,6 +29,8 @@ import {
 } from '../api/catalog';
 import AudivoCalendar from '../components/AudivoCalendar';
 import AudivoTimeSelect from '../components/AudivoTimeSelect';
+import ImagePicker from '../components/ImagePicker';
+import { uploadAlbumCoverImage } from '../api/uploads';
 
 const STEPS = ['Artist profile', 'Album details', 'Add tracks', 'Review & create'];
 
@@ -432,8 +434,13 @@ export default function ArtistStudioPage() {
             <TextField label="Description" value={albumDescription}
               onChange={(e) => setAlbumDescription(e.target.value)}
               fullWidth multiline minRows={3} placeholder="Tell listeners about this release…" />
-            <TextField label="Cover image URL" value={coverUrl} onChange={(e) => setCoverUrl(e.target.value)}
-              fullWidth placeholder="https://…" />
+            <ImagePicker
+              label="Cover image"
+              shape="square"
+              value={coverUrl}
+              onChange={setCoverUrl}
+              uploadFn={uploadAlbumCoverImage}
+            />
             <FormControlLabel
               control={<Switch checked={isSingle} onChange={(e) => onToggleSingle(e.target.checked)} />}
               label="This is a single (one track only)"
