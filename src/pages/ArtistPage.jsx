@@ -15,6 +15,7 @@ import AlbumCard from '../components/AlbumCard';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
 import { fetchArtistByUsername, fetchAlbum } from '../api/catalog';
 import { fetchArtistStatus, followArtist, unfollowArtist } from '../api/social';
+import { useCoverAccentColor } from '../store/hooks/useCoverAccentColor';
 
 const fmtDuration = (secs) => {
   if (secs == null) return '—';
@@ -49,11 +50,7 @@ export default function ArtistPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
-  // Follow state is separate from the artist payload on purpose: the catalog
-  // fetch is the same for everybody and could be cached, but "am I following
-  // this artist" is per-user. Mixing them would make the artist page uncacheable.
-  // So we load the artist first, then ask the status endpoint who *I* am to them.
-  const [follow, setFollow] = useState(null); // { following, followerCount } | null
+  const [follow, setFollow] = useState(null);
   const [followBusy, setFollowBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -71,9 +68,6 @@ export default function ArtistPage() {
 
   const profile = data?.profile;
   const artistRef = profile ? { id: profile.id, stageName: profile.stageName } : null;
-
-  // Once we know the artist profile id, fetch the follow status. Runs whenever the
-  // profile id changes (i.e. navigating between artists), not on every render.
   useEffect(() => {
     const id = profile?.id;
     if (!id) return;
@@ -85,17 +79,12 @@ export default function ArtistPage() {
           setFollow({ following: res.following, followerCount: res.followerCount });
         }
       } catch {
-        // A failed status check just means no follow button state — the page
-        // itself is still fully usable, so we fail quietly rather than erroring.
         if (!cancelled) setFollow(null);
       }
     })();
     return () => { cancelled = true; };
   }, [profile?.id]);
 
-  // Optimistic toggle. We flip the button and adjust the count immediately so the
-  // tap feels instant, then reconcile with the server's real numbers. If the call
-  // fails, we roll back to exactly what we had — no guessing.
   const onToggleFollow = async () => {
     if (!profile?.id || !follow || followBusy) return;
     setFollowBusy(true);
@@ -151,10 +140,9 @@ export default function ArtistPage() {
       if (queue.length === 0) return;
       dispatch(playFromQueue({ queue, index: 0 }));
     } catch {
-      // A failed album fetch shouldn't tear down the artist page; the click is a
-      // nicety, not load-bearing.
     }
   };
+  const accentColor = useCoverAccentColor(profile?.avatarUrl || null);
 
   if (loading) {
     return (
@@ -184,55 +172,60 @@ export default function ArtistPage() {
         <ArrowBackRoundedIcon />
       </IconButton>
 
-      {/* A follow action that errored (not the initial load) surfaces here without
-          replacing the whole page. */}
       {err && data && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setErr(null)}>{err}</Alert>
       )}
 
       {/* Header */}
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} sx={{ alignItems: { sm: 'center' }, mb: 3 }}>
-        <Avatar
-          src={profile?.avatarUrl || undefined}
-          sx={{ width: 120, height: 120, bgcolor: 'primary.main', fontSize: 40 }}
-        >
-          {(profile?.stageName || '?').charAt(0).toUpperCase()}
-        </Avatar>
-        <Box sx={{ flexGrow: 1 }}>
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-            <Typography variant="h4" sx={{ fontWeight: 800 }}>{profile?.stageName}</Typography>
-            {profile?.isVerified && <VerifiedRoundedIcon color="primary" />}
-          </Stack>
-          <Typography variant="body2" color="text.secondary">@{data?.username}</Typography>
-
-          {/* Followers + follow button. Only rendered once the status call has
-              resolved — until then there is nothing truthful to show, and a
-              flickering 0 would be worse than a brief absence. */}
-          {follow && (
-            <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mt: 1.5 }}>
-              <Typography variant="body2" color="text.secondary">
-                {fmtCount(follow.followerCount)}{' '}
-                {follow.followerCount === 1 ? 'follower' : 'followers'}
-              </Typography>
-              <Button
-                size="small"
-                variant={follow.following ? 'outlined' : 'contained'}
-                color="primary"
-                disabled={followBusy}
-                onClick={onToggleFollow}
-                startIcon={follow.following ? <HowToRegRoundedIcon /> : <PersonAddRoundedIcon />}
-                sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 5 }}
-              >
-                {follow.following ? 'Following' : 'Follow'}
-              </Button>
+      <Box
+        sx={{
+          borderRadius: 4, p: { xs: 2, sm: 3 }, mb: 3,
+          background: (t) => accentColor
+            ? `linear-gradient(135deg, ${accentColor}33, ${t.palette.background.paper} 75%)`
+            : `linear-gradient(135deg, ${t.palette.primary.main}33, ${t.palette.background.paper} 75%)`,
+          transition: 'background 0.4s ease',
+        }}
+      >
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} sx={{ alignItems: { sm: 'center' } }}>
+          <Avatar
+            src={profile?.avatarUrl || undefined}
+            sx={{ width: 120, height: 120, bgcolor: 'primary.main', fontSize: 40 }}
+          >
+            {(profile?.stageName || '?').charAt(0).toUpperCase()}
+          </Avatar>
+          <Box sx={{ flexGrow: 1 }}>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <Typography variant="h4" sx={{ fontWeight: 800 }}>{profile?.stageName}</Typography>
+              {profile?.isVerified && <VerifiedRoundedIcon color="primary" />}
             </Stack>
-          )}
+            <Typography variant="body2" color="text.secondary">@{data?.username}</Typography>
 
-          {profile?.bio && (
-            <Typography variant="body2" sx={{ mt: 1.5, maxWidth: 560 }}>{profile.bio}</Typography>
-          )}
-        </Box>
-      </Stack>
+            {follow && (
+              <Stack direction="row" spacing={2} sx={{ alignItems: 'center', mt: 1.5 }}>
+                <Typography variant="body2" color="text.secondary">
+                  {fmtCount(follow.followerCount)}{' '}
+                  {follow.followerCount === 1 ? 'follower' : 'followers'}
+                </Typography>
+                <Button
+                  size="small"
+                  variant={follow.following ? 'outlined' : 'contained'}
+                  color="primary"
+                  disabled={followBusy}
+                  onClick={onToggleFollow}
+                  startIcon={follow.following ? <HowToRegRoundedIcon /> : <PersonAddRoundedIcon />}
+                  sx={{ textTransform: 'none', fontWeight: 700, borderRadius: 5 }}
+                >
+                  {follow.following ? 'Following' : 'Follow'}
+                </Button>
+              </Stack>
+            )}
+
+            {profile?.bio && (
+              <Typography variant="body2" sx={{ mt: 1.5, maxWidth: 560 }}>{profile.bio}</Typography>
+            )}
+          </Box>
+        </Stack>
+      </Box>
 
       {/* Albums */}
       <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>Albums</Typography>

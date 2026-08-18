@@ -15,6 +15,8 @@ import LoginHistoryDialog from './LoginHistoryDialog';
 import { useAuth } from '../store/hooks/useAuth';
 import DeleteAccountDialog from './DeleteAccountDialog';
 import AudivoDateField from './AudivoDateField';
+import ImagePicker from './ImagePicker';
+import { uploadUserAvatarImage } from '../api/uploads';
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Non-binary', 'Prefer not to say'];
 
@@ -220,8 +222,13 @@ export default function ProfileDialog({ open, onClose }) {
             <TextField label="Phone number" fullWidth value={form.phoneNumber} onChange={set('phoneNumber')}
               placeholder="e.g. +92 300 1234567" />
 
-            <TextField label="Avatar URL" fullWidth value={form.avatarUrl} onChange={set('avatarUrl')}
-              placeholder="https://…" helperText="Paste an image URL" />
+            <ImagePicker
+              label="Avatar"
+              shape="circle"
+              value={form.avatarUrl}
+              onChange={(url) => setForm((f) => ({ ...f, avatarUrl: url }))}
+              uploadFn={uploadUserAvatarImage}
+            />
             <Typography variant="overline" color="text.secondary">Address</Typography>
             <TextField label="Street" fullWidth value={form.addressStreet} onChange={set('addressStreet')} />
             <Grid container spacing={2}>

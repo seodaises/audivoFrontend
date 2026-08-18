@@ -25,6 +25,8 @@ import AddToPlaylistDialog from '../components/AddToPlaylistDialog';
 import CommentSection from '../components/CommentSection';
 import ShareButton from '../components/ShareButton';
 import SongLyricsButton from '../components/SongLyricsButton';
+import ImagePicker from '../components/ImagePicker';
+import { uploadAlbumCoverImage } from '../api/uploads';
 import useSocialSong from '../store/hooks/useSocial';
 import { useSelector, useDispatch } from 'react-redux';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
@@ -520,8 +522,13 @@ function EditAlbumDialog({ album, onClose, onSaved, onError }) {
           <TextField label="Description" value={description}
             onChange={(e) => setDescription(e.target.value)}
             fullWidth multiline minRows={3} placeholder="Tell listeners about this release…" />
-          <TextField label="Cover image URL" value={coverUrl} onChange={(e) => setCoverUrl(e.target.value)}
-            fullWidth placeholder="https://…" />
+          <ImagePicker
+            label="Cover image"
+            shape="square"
+            value={coverUrl}
+            onChange={setCoverUrl}
+            uploadFn={uploadAlbumCoverImage}
+          />
         </Stack>
       </DialogContent>
       <DialogActions>
