@@ -238,7 +238,7 @@ export function adminDeleteAlbum(albumId) {
 // POST /songs — multipart upload. 
 import axios from 'axios';
 
-export function uploadSong({ title, albumId, trackNumber, durationSeconds, genreIds, file }) {
+export function uploadSong({ title, albumId, trackNumber, durationSeconds, genreIds, publish, file }) {
   const form = new FormData();
   form.append('audio', file);            // <-- multer field name
   form.append('title', title);
@@ -247,12 +247,11 @@ export function uploadSong({ title, albumId, trackNumber, durationSeconds, genre
   if (durationSeconds != null && durationSeconds !== '') form.append('durationSeconds', durationSeconds);
   // genreIds: the service accepts a CSV string or JSON; CSV is simplest here.
   if (Array.isArray(genreIds) && genreIds.length) form.append('genreIds', genreIds.join(','));
+  if (publish != null) form.append('publish', publish ? 'true' : 'false');
 
   return axios
     .post(`${API_BASE_URL}/api/songs`, form, {
       withCredentials: true,             // send the auth cookie
-      // NOTE: deliberately NOT setting Content-Type — axios/browser sets the
-      // multipart boundary automatically. Setting it by hand breaks the upload.
     })
     .then((res) => res.data.data);       // raw axios: unwrap HTTP -> envelope -> data
 }

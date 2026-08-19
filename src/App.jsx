@@ -15,6 +15,7 @@ import Dashboard from './pages/Dashboard';
 import ManageUsersPage from './pages/ManageUsersPage';
 import ManageRolesPage from './pages/ManageRolesPage';
 import ManageAdminsPage from './pages/ManageAdminsPage';
+import ActiveUsersPage from './pages/ActiveUsersPage';
 import ContactQueriesPage from './pages/ContactQueriesPage';
 import ManageArtistsPage from './pages/ManageArtistsPage';
 import BrowsePage from './pages/BrowsePage';
@@ -37,7 +38,7 @@ import { PERMISSIONS } from './auth/permissions';
 import AnalyticsPage from './pages/AnalyticsPage';
 import ArtistAnalyticsPage from './pages/ArtistAnalyticsPage';
 import ModeratePage from './pages/ModeratePage';
-import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES, MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER, SEARCH} from './constants/route_constant';
+import {LOGIN, REGISTER, RESET_PASSWORD, DASHBOARD, BROWSE, LIBRARY, UPLOAD, SONGS, FEATURE, USERS, ANALYTICS, MODERATE, ROLES, ADMINS, ACTIVE_USERS, CONTACT_QUERIES, MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER, SEARCH} from './constants/route_constant';
 
 const Placeholder = ({ title }) => <Typography variant="h4" sx={{ fontWeight: 800 }}>{title}</Typography>;
 
@@ -160,6 +161,11 @@ export default function App() {
             <Route path={ADMINS} element={
               <RequirePermission permission={PERMISSIONS.MANAGE_ROLES}>
                 <ManageAdminsPage />
+              </RequirePermission>
+            } />
+            <Route path={ACTIVE_USERS} element={
+              <RequirePermission permission={PERMISSIONS.MANAGE_ADMINS}>
+                <ActiveUsersPage />
               </RequirePermission>
             } />
           </Route>

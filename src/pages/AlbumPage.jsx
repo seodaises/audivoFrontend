@@ -547,10 +547,9 @@ function AddSongDialog({ albumId, nextTrack, onClose, onAdded, onError }) {
   const [file, setFile] = useState(null);
   const [durationSeconds, setDurationSeconds] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   useEffect(() => { fetchGenres().then(setGenres).catch(() => setGenres([])); }, []);
-
-  // Auto-read duration from the chosen file (no field shown to the user).
   const onFile = (f) => {
     setFile(f);
     setDurationSeconds(null);
@@ -569,7 +568,9 @@ function AddSongDialog({ albumId, nextTrack, onClose, onAdded, onError }) {
   };
 
   const save = async () => {
+    setSubmitAttempted(true);
     if (!file) { onError('Choose an audio file first.'); return; }
+    if (!genreId) { onError('Pick a genre before uploading — every track needs one.'); return; }
     setSaving(true);
     try {
       await uploadSong({
@@ -577,7 +578,7 @@ function AddSongDialog({ albumId, nextTrack, onClose, onAdded, onError }) {
         albumId,
         trackNumber: trackNumber ? Number(trackNumber) : null,
         durationSeconds,
-        genreIds: genreId ? [genreId] : [],
+        genreIds: [genreId],
         file,
       });
       await onAdded();
@@ -594,8 +595,10 @@ function AddSongDialog({ albumId, nextTrack, onClose, onAdded, onError }) {
           <TextField label="Song title" value={title} onChange={(e) => setTitle(e.target.value)} fullWidth autoFocus />
           <TextField label="Track number" type="number" value={trackNumber}
             onChange={(e) => setTrackNumber(e.target.value)} fullWidth />
-          <TextField select label="Genre" value={genreId} onChange={(e) => setGenreId(e.target.value)} fullWidth>
-            <MenuItem value="">None</MenuItem>
+          <TextField select required label="Genre" value={genreId}
+            onChange={(e) => setGenreId(e.target.value)} fullWidth
+            error={submitAttempted && !genreId}
+            helperText={submitAttempted && !genreId ? 'Required' : ' '}>
             {genres.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
           </TextField>
           <Button variant="outlined" component="label">
@@ -606,7 +609,7 @@ function AddSongDialog({ albumId, nextTrack, onClose, onAdded, onError }) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button variant="contained" onClick={save} disabled={saving || !title.trim() || !file}>Upload</Button>
+        <Button variant="contained" onClick={save} disabled={saving || !title.trim() || !file || !genreId}>Upload</Button>
       </DialogActions>
     </Dialog>
   );

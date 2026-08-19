@@ -3,7 +3,7 @@ import {
   Box, Typography, Stepper, Step, StepLabel, TextField, Button, Stack,
   Alert, Paper, Chip, MenuItem, CircularProgress, Divider, Switch,
   FormControlLabel, IconButton, List, ListItem, ListItemText, Tooltip,
-  LinearProgress, FormControl, InputLabel, Select,
+  LinearProgress, FormControl, InputLabel, Select, FormHelperText,
   ToggleButton, ToggleButtonGroup,
 } from '@mui/material';
 import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded';
@@ -77,7 +77,7 @@ const readAudioDuration = (file) =>
   });
 
 function SortableTrackRow({
-  track, index, genres, draggable, onUpdate, onRemove, fmtDuration,
+  track, index, genres, draggable, onUpdate, onRemove, fmtDuration, showError,
 }) {
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
@@ -135,16 +135,19 @@ function SortableTrackRow({
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}
             sx={{ mt: 1.5, alignItems: { sm: 'center' } }}>
-            <FormControl size="small" sx={{ minWidth: 160 }}>
+            <FormControl size="small" sx={{ minWidth: 160 }} required
+              error={showError && track.genreIds.length === 0}>
               <InputLabel>Genre</InputLabel>
               <Select
                 label="Genre"
                 value={track.genreIds[0] || ''}
                 onChange={(e) => onUpdate(track.key, { genreIds: e.target.value ? [e.target.value] : [] })}
               >
-                <MenuItem value="">None</MenuItem>
                 {genres.map((g) => <MenuItem key={g.id} value={g.id}>{g.name}</MenuItem>)}
               </Select>
+              {showError && track.genreIds.length === 0 && (
+                <FormHelperText>Required</FormHelperText>
+              )}
             </FormControl>
             <FormControlLabel
               control={<Switch checked={track.publish}
@@ -164,6 +167,11 @@ function SortableTrackRow({
 export default function ArtistStudioPage() {
   const [activeStep, setActiveStep] = useState(0);
   const [busy, setBusy] = useState(false);
+  // Only show a track's "pick a genre" error after a submit was actually
+  // attempted — an empty Select on a freshly-added track isn't an error yet,
+  // it's just not filled in. Avoids nagging red fields before the artist has
+  // had a chance to fill them in.
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [err, setErr] = useState(null);
   const [notice, setNotice] = useState(null);
 
@@ -290,14 +298,18 @@ export default function ArtistStudioPage() {
 
   // --- Final create: album + all tracks, each with its chosen status ---
   const doCreateEverything = () => wrap(async () => {
+    setSubmitAttempted(true);
     if (!albumTitle.trim()) throw new Error('Album title is required.');
     if (tracks.length === 0) throw new Error('Add at least one track.');
     if (isSingle && tracks.length > 1) {
       throw new Error('A single can only have one track. Remove the extra tracks or turn off "single".');
     }
+    const genrelessIdx = tracks.findIndex((t) => !t.genreIds || t.genreIds.length === 0);
+    if (genrelessIdx !== -1) {
+      const label = tracks[genrelessIdx].title.trim() || `Track ${genrelessIdx + 1}`;
+      throw new Error(`Pick a genre for "${label}" — every track needs one before it can be uploaded.`);
+    }
 
-    // If scheduling, combine the chosen calendar day + time slot into one instant
-    // and validate it's genuinely in the future BEFORE we upload anything.
     let scheduleInstant = null;
     if (releaseMode === 'schedule') {
       if (!scheduleDate || !scheduleTime) {
@@ -346,6 +358,7 @@ export default function ArtistStudioPage() {
         trackNumber: i + 1,
         durationSeconds: t.durationSeconds,
         genreIds: t.genreIds,
+        publish: t.publish,
         file: t.file,
       });
       if (publishing && t.publish) {
@@ -513,6 +526,7 @@ export default function ArtistStudioPage() {
                         onUpdate={updateTrack}
                         onRemove={removeTrack}
                         fmtDuration={fmtDuration}
+                        showError={submitAttempted}
                       />
                     ))}
                   </List>
@@ -617,16 +631,15 @@ export default function ArtistStudioPage() {
                 <Box sx={{ flex: 1, minWidth: 0, width: '100%' }}>
                   <Typography variant="caption" color="text.secondary"
                     sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
-                    Time (30-minute slots)
+                    Time
                   </Typography>
                   <AudivoTimeSelect
                     value={scheduleTime}
                     onChange={setScheduleTime}
-                    label="Release time"
                   />
                   <Typography variant="caption" color="text.secondary"
                     sx={{ display: 'block', mt: 1.5 }}>
-                    Uses your local time. Publishes automatically at the selected slot.
+                    Uses your local time. Publishes automatically at the selected minute.
                   </Typography>
                 </Box>
               </Stack>

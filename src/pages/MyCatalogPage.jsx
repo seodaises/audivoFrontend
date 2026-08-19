@@ -15,6 +15,8 @@ import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import UnarchiveRoundedIcon from '@mui/icons-material/UnarchiveRounded';
 import PublishRoundedIcon from '@mui/icons-material/PublishRounded';
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
+import EventRepeatRoundedIcon from '@mui/icons-material/EventRepeatRounded';
+import EventBusyRoundedIcon from '@mui/icons-material/EventBusyRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import QueueMusicRoundedIcon from '@mui/icons-material/QueueMusicRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
@@ -22,8 +24,12 @@ import GavelRoundedIcon from '@mui/icons-material/GavelRounded';
 import { useSelector, useDispatch } from 'react-redux';
 import MediaCardShell from '../components/MediaCardShell';
 import { playFromQueue, togglePlay } from '../store/slices/playerSlice';
-import { fetchMyCatalog, setSongStatus, setAlbumStatus, deleteSong, deleteAlbum } from '../api/catalog';
+import {
+  fetchMyCatalog, setSongStatus, setAlbumStatus, deleteSong, deleteAlbum,
+  scheduleRelease, cancelSchedule,
+} from '../api/catalog';
 import DeleteCatalogItemDialog from '../components/DeleteCatalogItemDialog';
+import RescheduleAlbumDialog from '../components/RescheduleAlbumDialog';
 import LyricsAction from '../components/LyricsAction';
 import { UPLOAD, BROWSE } from '../constants/route_constant';
 import { useAuth } from '../store/hooks/useAuth';
@@ -47,7 +53,10 @@ const fmtDate = (iso) => {
 };
 
 const statusColor = (status) =>
-  status === 'published' ? 'success' : status === 'archived' ? 'default' : 'warning';
+  status === 'published' ? 'success'
+    : status === 'archived' ? 'default'
+      : status === 'scheduled' ? 'info'
+        : 'warning';
 
 // Case-insensitive substring match. Deliberately dumb — this filters an array
 // that's ALREADY in memory, so there's no query to optimize.
@@ -69,6 +78,7 @@ export default function MyCatalogPage() {
   const [busyId, setBusyId] = useState(null);   // which row is mid-write
   const [hoverId, setHoverId] = useState(null);  // which album card is hovered (toggle reveal)
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState(null); // album mid-reschedule, or null
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // '' = all
@@ -138,6 +148,25 @@ export default function MyCatalogPage() {
     try { await setAlbumStatus(album.id, next); await load({ silent: true }); }
     catch (e) { setErr(e.message); }
     finally { setBusyId(null); }
+  };
+
+  // Cancel a pending scheduled release — reverts the album to draft and
+  // cleans up the queued release/pre-release jobs (albumService.cancelSchedule).
+  // A single click, no dialog, same lightweight pattern as the other status
+  // toggles — cancelling is safe and easily redone via "Schedule" again.
+  const cancelAlbumSchedule = async (album) => {
+    setBusyId(`album-${album.id}`);
+    try { await cancelSchedule(album.id); await load({ silent: true }); }
+    catch (e) { setErr(e.message); }
+    finally { setBusyId(null); }
+  };
+
+  // Reschedule needs a date/time picked first, so it opens a dialog rather
+  // than firing immediately like the other toggles.
+  const confirmReschedule = async (releaseAtIso) => {
+    if (!rescheduleTarget) return;
+    await scheduleRelease(rescheduleTarget.id, releaseAtIso);
+    await load({ silent: true });
   };
 
  const confirmDelete = async (password) => {
@@ -265,8 +294,82 @@ export default function MyCatalogPage() {
   };
 
   // Status toggle — an icon-only frosted "liquid-glass" pill that fades in on card hover. draft -> publish, published -> archive, archived -> republish.
+  //
+  // 'scheduled' is handled separately below (two actions, not one) because:
+  //   1. it needs a date/time picked first (Reschedule opens a dialog)
+  //   2. it used to fall through to map.draft here, silently rendering a
+  //      "Publish album" button that called the generic setStatus('published')
+  //      path — which skips cancelling the queued release/prerelease jobs and,
+  //      before the held_back fix, also skipped the artist's held-back drafts.
+  //      Routing scheduled albums through scheduleRelease/cancelSchedule avoids
+  //      that path entirely.
   const albumToggle = (a, visible) => {
     const busy = busyId === `album-${a.id}`;
+
+    if (a.status === 'scheduled') {
+      return (
+        <>
+          <Tooltip title="Reschedule">
+            <span>
+              <IconButton
+                onClick={() => setRescheduleTarget(a)}
+                disabled={busy}
+                size="small"
+                aria-label="Reschedule album"
+                sx={(t) => ({
+                  width: 30, height: 30,
+                  color: 'info.main',
+                  bgcolor: alpha(t.palette.info.main, 0.14),
+                  border: `1px solid ${alpha(t.palette.info.main, 0.35)}`,
+                  backdropFilter: 'blur(8px)',
+                  WebkitBackdropFilter: 'blur(8px)',
+                  boxShadow: `inset 0 1px 0 ${alpha('#fff', 0.15)}`,
+                  opacity: visible || busy ? 1 : 0,
+                  pointerEvents: visible || busy ? 'auto' : 'none',
+                  transform: visible || busy ? 'scale(1)' : 'scale(0.9)',
+                  transition: 'opacity .18s ease, transform .18s ease, background-color .18s ease',
+                  '&:hover': {
+                    bgcolor: alpha(t.palette.info.main, 0.24),
+                    border: `1px solid ${alpha(t.palette.info.main, 0.5)}`,
+                  },
+                })}
+              >
+                {busy ? <CircularProgress size={14} color="inherit" /> : <EventRepeatRoundedIcon fontSize="small" />}
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Cancel schedule (back to draft)">
+            <span>
+              <IconButton
+                onClick={() => cancelAlbumSchedule(a)}
+                disabled={busy}
+                size="small"
+                aria-label="Cancel scheduled release"
+                sx={(t) => ({
+                  width: 30, height: 30,
+                  color: 'warning.main',
+                  bgcolor: alpha(t.palette.warning.main, 0.14),
+                  border: `1px solid ${alpha(t.palette.warning.main, 0.35)}`,
+                  backdropFilter: 'blur(8px)',
+                  WebkitBackdropFilter: 'blur(8px)',
+                  boxShadow: `inset 0 1px 0 ${alpha('#fff', 0.15)}`,
+                  opacity: visible || busy ? 1 : 0,
+                  pointerEvents: visible || busy ? 'auto' : 'none',
+                  transform: visible || busy ? 'scale(1)' : 'scale(0.9)',
+                  transition: 'opacity .18s ease, transform .18s ease, background-color .18s ease',
+                  '&:hover': {
+                    bgcolor: alpha(t.palette.warning.main, 0.24),
+                    border: `1px solid ${alpha(t.palette.warning.main, 0.5)}`,
+                  },
+                })}
+              >
+                {busy ? <CircularProgress size={14} color="inherit" /> : <EventBusyRoundedIcon fontSize="small" />}
+              </IconButton>
+            </span>
+          </Tooltip>
+        </>
+      );
+    }
 
     const map = {
       draft:     { title: 'Publish album',   icon: <PublishRoundedIcon fontSize="small" />,   next: 'published', role: 'success' },
@@ -552,6 +655,13 @@ export default function MyCatalogPage() {
         }
         onClose={() => setPendingDelete(null)}
         onConfirm={confirmDelete}
+      />
+
+      <RescheduleAlbumDialog
+        open={Boolean(rescheduleTarget)}
+        album={rescheduleTarget}
+        onClose={() => setRescheduleTarget(null)}
+        onConfirm={confirmReschedule}
       />
     </Box>
   );

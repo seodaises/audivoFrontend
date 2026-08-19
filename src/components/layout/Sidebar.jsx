@@ -18,6 +18,7 @@ import LibraryAddCheckRoundedIcon from '@mui/icons-material/LibraryAddCheckRound
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import QueueMusicRoundedIcon from '@mui/icons-material/QueueMusicRounded';
 import PublicRoundedIcon from '@mui/icons-material/PublicRounded';
+import OnlinePredictionRoundedIcon from '@mui/icons-material/OnlinePredictionRounded';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/hooks/useAuth';
 import { useSidebar } from '../../store/hooks/useSidebar';
@@ -25,7 +26,7 @@ import { PERMISSIONS } from '../../auth/permissions';
 import ProfileMenu from '../ProfileMenu';
 import {
   DASHBOARD, BROWSE, LIBRARY, UPLOAD, USERS,
-  ANALYTICS, MODERATE, ROLES, ADMINS, CONTACT_QUERIES,
+  ANALYTICS, MODERATE, ROLES, ADMINS, ACTIVE_USERS, CONTACT_QUERIES,
   MANAGE_ARTISTS, MANAGE_CATALOG, MY_ARTIST, MY_CATALOG, PLAYLISTS, DISCOVER, SEARCH
 } from '../../constants/route_constant';
 
@@ -56,6 +57,7 @@ const gatedItems = [
 
 const superAdminItems = [
   { label: 'Manage Admins', icon: <ShieldRoundedIcon />, path: ADMINS },
+  { label: 'Active Users', icon: <OnlinePredictionRoundedIcon />, path: ACTIVE_USERS },
 ];
 
 export function SidebarNav({ rail, onNavigate = () => {} }) {
@@ -71,9 +73,6 @@ export function SidebarNav({ rail, onNavigate = () => {} }) {
     ),
     ...(isSuperAdmin ? superAdminItems : []),
   ];
-
-  // One row. In rail mode we drop the text label and wrap the button in a
-  // Tooltip so hovering the icon still tells you what it is.
   const renderItem = (item) => {
     const button = (
       <ListItemButton
