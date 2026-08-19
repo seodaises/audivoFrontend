@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   Box, Typography, Paper, Stack, Chip, LinearProgress, Skeleton, Alert,
+  Avatar, List, ListItem, ListItemAvatar, ListItemText,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/hooks/useAuth';
@@ -8,6 +9,7 @@ import { api } from '../api/client';
 import { PERMISSIONS } from '../auth/permissions';
 import { MANAGE_ARTISTS, CONTACT_QUERIES, ANALYTICS } from '../constants/route_constant';
 import GenrePlaysChart from '../components/GenrePlaysChart';
+import { fmtRelative } from '../utils/format';
 
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
@@ -20,8 +22,19 @@ import PendingActionsRoundedIcon from '@mui/icons-material/PendingActionsRounded
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 import VerifiedUserRoundedIcon from '@mui/icons-material/VerifiedUserRounded';
 import MailRoundedIcon from '@mui/icons-material/MailRounded';
+import OnlinePredictionRoundedIcon from '@mui/icons-material/OnlinePredictionRounded';
 
 const nf = new Intl.NumberFormat();
+
+const roleChipColor = (role) => {
+  switch (role) {
+    case 'Super Admin': return 'error';
+    case 'Admin': return 'primary';
+    case 'Moderator': return 'warning';
+    case 'Artist': return 'info';
+    default: return 'default';
+  }
+};
 
 function StatCard({ icon, label, value, loading, accent }) {
   return (
@@ -56,8 +69,6 @@ function StatCard({ icon, label, value, loading, accent }) {
   );
 }
 
-// A clickable tile that routes somewhere in the admin area. `count` turns it from
-// a link into a to-do: a number here means there is outstanding work behind it.
 function ActionCard({ icon, title, description, onClick, count }) {
   const hasWork = Number(count) > 0;
   return (
@@ -92,9 +103,6 @@ function ActionCard({ icon, title, description, onClick, count }) {
   );
 }
 
-// One labelled bar. Used for both the role breakdown and the catalog breakdown —
-// same visual language, so the two panels read as siblings rather than as two
-// unrelated widgets that happen to sit next to each other.
 function BreakdownRow({ label, value, total, caption, color = 'primary' }) {
   const pct = total > 0 ? Math.round((value / total) * 100) : 0;
   return (
@@ -143,6 +151,36 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
+  const isSuperAdmin = (user?.level ?? 0) >= 5;
+
+  const [presence, setPresence] = useState(null); // { count } or { items, windowMinutes }
+  const [presenceLoading, setPresenceLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+
+    const loadPresence = async () => {
+      try {
+        const { data } = isSuperAdmin
+          ? await api('/admin/active-sessions')
+          : await api('/admin/active-sessions/count');
+        if (alive) setPresence(data);
+      } catch {
+        if (alive) setPresence(null);
+      } finally {
+        if (alive) setPresenceLoading(false);
+      }
+    };
+
+    loadPresence();
+    const intervalId = setInterval(loadPresence, 30_000);
+
+    return () => {
+      alive = false;
+      clearInterval(intervalId);
+    };
+  }, [isSuperAdmin]);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -159,7 +197,7 @@ export default function AdminDashboard() {
     return () => { alive = false; };
   }, []);
 
-  // Defensive defaults. If the backend hasn't been restarted with the catalog counts yet, `metrics.catalog` is undefined — this renders zeroes and dashes rather than throwing on `.totalSongs` of undefined. A stale backend should look wrong, not blank the page. Same reasoning for playsByGenre defaulting to [] — the chart's own empty state then handles it, rather than crashing on .filter of undefined.
+
   const cat = metrics?.catalog ?? {};
   const inbox = metrics?.inbox ?? {};
   const pendingArtists = cat.pendingArtists ?? 0;
@@ -167,6 +205,7 @@ export default function AdminDashboard() {
   const playsByGenre = cat.playsByGenre ?? [];
 
   const val = (n) => (n == null ? '—' : nf.format(n));
+  const activeNow = presence ? (isSuperAdmin ? presence.items?.length ?? 0 : presence.count ?? 0) : null;
   const totalSongs = cat.totalSongs ?? 0;
   const totalAlbums = cat.totalAlbums ?? 0;
 
@@ -181,9 +220,6 @@ export default function AdminDashboard() {
 
       {err && <Alert severity="error" sx={{ mb: 3 }}>{err}</Alert>}
 
-      {/* Top-line metrics. CSS grid with auto-fit rather than a flex wrap: at
-          1900px this lays out 8 across, at 1200px it reflows to 4, on a phone to
-          1 — without a single breakpoint written by hand. */}
       <Box
         sx={{
           display: 'grid',
@@ -193,6 +229,8 @@ export default function AdminDashboard() {
       >
         <StatCard icon={<PeopleRoundedIcon />} label="Total users"
           value={val(metrics?.totalUsers)} loading={loading} />
+        <StatCard icon={<OnlinePredictionRoundedIcon />} label="Active now"
+          value={val(activeNow)} loading={presenceLoading} />
         <StatCard icon={<CheckCircleRoundedIcon />} label="Active users"
           value={val(metrics?.activeUsers)} loading={loading} />
         <StatCard icon={<BlockRoundedIcon />} label="Inactive users"
@@ -205,8 +243,6 @@ export default function AdminDashboard() {
           value={val(cat.totalArtists)} loading={loading} />
         <StatCard icon={<PlayCircleRoundedIcon />} label="Total plays"
           value={val(cat.totalPlays)} loading={loading} />
-        {/* Accented only when it's non-zero — a pending queue is a to-do, an empty
-            one is just a number. Colour carries meaning or it carries nothing. */}
         <StatCard icon={<PendingActionsRoundedIcon />} label="Pending verification"
           value={val(cat.pendingArtists)} loading={loading}
           accent={!loading && pendingArtists > 0} />
@@ -256,13 +292,6 @@ export default function AdminDashboard() {
                 <PanelSkeleton rows={5} />
               ) : totalSongs > 0 || totalAlbums > 0 ? (
                 <Stack divider={<Box sx={{ borderBottom: '1px dashed', borderColor: 'divider' }} />}>
-                  {/* SONGS and ALBUMS are counted separately and must be REPORTED
-                      separately. They were previously collapsed into one "Published"
-                      row measured against totalSongs — which quietly answered a
-                      question nobody asked. "8 of 12 published" is meaningless if you
-                      can't tell whether that's 8 tracks or 8 records; a 12-track album
-                      and 12 singles are the same number and completely different
-                      catalogs. Two rows, two denominators, no ambiguity. */}
                   <BreakdownRow
                     label="Published songs" color="success"
                     value={cat.publishedSongs ?? 0} total={totalSongs}
@@ -321,14 +350,6 @@ export default function AdminDashboard() {
             />
           )}
 
-          {/* The chart sits at the bottom of the rail — the empty space you marked.
-              
-              Gated on VIEW_ANALYTICS, not just "is admin". The /admin/metrics
-              endpoint is already gated on that permission, so an admin WITHOUT it
-              gets a 403 and this whole page shows an error — but the gate belongs
-              here regardless, because permission checks live at the point of use.
-              Relying on "well, the request would fail anyway" is defence by side
-              effect, and side effects change. */}
           {can(PERMISSIONS.VIEW_ANALYTICS) && (
             <Box sx={{ pt: 1 }}>
               <Stack direction="row" spacing={1}
